@@ -15,6 +15,10 @@
  */
 
 import assert from "node:assert/strict";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { isSymlink } from "./symlink.js";
 
 let passed = 0;
 let failed = 0;
@@ -210,6 +214,43 @@ test("cycle 3: after Case 7 pull with fix, Math.max(1180, 1150)=1180 → SKIP", 
 	// Case 7 pulled and vault.modify() set localMtime = 1180. Math.max(1180, 1150) = 1180.
 	// Both 1180 ≤ 1180 and 1150 < 1180 → SKIP.
 	assert.equal(decide(1180, 1150, 1180), "SKIP");
+});
+
+// ─── isSymlink: symlinked files must be skipped to avoid infinite conflict loop ─
+//
+// CLAUDE.md → symlink to AGENTS.md in vault root.
+// Writing to CLAUDE.md modifies AGENTS.md's inode, so AGENTS.md appears changed
+// on the next cycle. Both paths then conflict indefinitely every 5s (debounce).
+// Fix: detect symlinks via lstatSync and skip them in decideFile.
+
+console.log("\nisSymlink: symlinked vault files must be skipped");
+
+test("isSymlink returns true for a symbolic link", () => {
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-sym-"));
+	try {
+		const target = path.join(tmpDir, "target.md");
+		const link = path.join(tmpDir, "link.md");
+		fs.writeFileSync(target, "content");
+		fs.symlinkSync(target, link);
+		assert.equal(isSymlink(link), true);
+	} finally {
+		fs.rmSync(tmpDir, { recursive: true });
+	}
+});
+
+test("isSymlink returns false for a regular file", () => {
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-sym-"));
+	try {
+		const file = path.join(tmpDir, "file.md");
+		fs.writeFileSync(file, "content");
+		assert.equal(isSymlink(file), false);
+	} finally {
+		fs.rmSync(tmpDir, { recursive: true });
+	}
+});
+
+test("isSymlink returns false for a missing path (no throw)", () => {
+	assert.equal(isSymlink("/nonexistent/__no_such_file__.md"), false);
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
