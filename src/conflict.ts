@@ -1,11 +1,11 @@
-const FRONTMATTER_SENTINEL = "__frontmatter__";
+export const FRONTMATTER_SENTINEL = "__frontmatter__";
 
-interface Section {
+export interface Section {
 	header: string;
 	content: string;
 }
 
-function parseFile(text: string): Section[] {
+export function parseFile(text: string): Section[] {
 	const sections: Section[] = [];
 
 	let body = text;
@@ -198,16 +198,22 @@ export function mergeConflict(
 		}
 	}
 
-	return output.join("\n\n");
+	if (output.length === 0) return "";
+	return output.join("\n\n") + "\n";
 }
 
 function emitSection(sec: Section, output: string[], emitted: Set<Section>): void {
 	if (emitted.has(sec)) return;
 	emitted.add(sec);
+	// Strip trailing newlines — the join("\n\n") adds the separator, and we
+	// re-add a single trailing \n at the very end of mergeConflict.
+	const content = sec.content.replace(/\n+$/, "");
 	if (sec.header === FRONTMATTER_SENTINEL || sec.header === "") {
-		output.push(sec.content);
+		output.push(content);
+	} else if (content.length > 0) {
+		output.push(sec.header + "\n" + content);
 	} else {
-		output.push(sec.header + "\n" + sec.content);
+		output.push(sec.header);
 	}
 }
 
