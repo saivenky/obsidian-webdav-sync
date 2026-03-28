@@ -97,8 +97,9 @@ export class SyncEngine {
 			}
 		}
 
-		// Recursively scan dirs whose mtime changed
+		// Recursively scan dirs whose mtime changed (skip excluded dirs entirely)
 		for (const dir of dirsToScan) {
+			if (this.isDirExcluded(dir.path)) continue;
 			this.stateManager.setDirMtime(dir.path, dir.mtime);
 			await this.scanDir(dir.path);
 		}
@@ -123,6 +124,7 @@ export class SyncEngine {
 		for (const entry of entries) {
 			if (entry.path === dirPath) continue; // dir itself
 			if (entry.isDir) {
+				if (this.isDirExcluded(entry.path)) continue;
 				this.stateManager.setDirMtime(entry.path, entry.mtime);
 				await this.scanDir(entry.path);
 			} else {
@@ -261,6 +263,13 @@ export class SyncEngine {
 				await this.plugin.app.vault.adapter.mkdir(normalizePath(dirPath));
 			}
 		}
+	}
+
+	private isDirExcluded(dirPath: string): boolean {
+		// Skip directories that are .git components
+		if (dirPath.split("/").some(part => part === ".git")) return true;
+		// Skip directories matched by an excluded prefix
+		return this.settings.excludedPaths.some(p => dirPath.startsWith(p) || (p.endsWith("/") && dirPath + "/" === p));
 	}
 
 	private isExcluded(path: string): boolean {
