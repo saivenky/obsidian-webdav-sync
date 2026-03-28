@@ -8,7 +8,7 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"test": "npx tsx src/conflict.test.ts"
+		"test": "npx tsx src/conflict.test.ts && npx tsx src/sync.test.ts"
 	},
 	"keywords": [],
 	"license": "GPL-3.0-only",

@@ -172,7 +172,12 @@ export class SyncEngine {
 			const content = await this.client.get(path);
 			await this.ensureParentDirs(path);
 			await this.plugin.app.vault.create(normalizePath(path), content);
-			this.stateManager.setFile(path, { mtime: remoteMtime! });
+			// Re-stat after create: vault.create() causes the OS to assign its own mtime,
+			// which differs from remoteMtime. Storing remoteMtime would make local look
+			// changed on the next cycle, triggering a spurious PUSH.
+			const afterStat4 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+			const mtime4 = afterStat4 ? Math.max(afterStat4.mtime, remoteMtime!) : remoteMtime!;
+			this.stateManager.setFile(path, { mtime: mtime4 });
 			this.log("PULL " + path);
 			return;
 		}
@@ -201,7 +206,9 @@ export class SyncEngine {
 					this.suppressNextModifyTrigger = true;
 					await this.plugin.app.vault.modify(file, content);
 				}
-				this.stateManager.setFile(path, { mtime: remoteMtime });
+				const afterStat55 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+				const mtime55 = afterStat55 ? Math.max(afterStat55.mtime, remoteMtime) : remoteMtime;
+				this.stateManager.setFile(path, { mtime: mtime55 });
 				this.log("PULL " + path);
 			} else {
 				const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
@@ -234,7 +241,13 @@ export class SyncEngine {
 				this.suppressNextModifyTrigger = true;
 				await this.plugin.app.vault.modify(file, content);
 			}
-			this.stateManager.setFile(path, { mtime: remoteMtime });
+			// Re-stat after modify: vault.modify() causes the OS to assign its own mtime,
+			// which is later than remoteMtime. Storing remoteMtime alone would make local
+			// look changed on the next cycle, triggering a spurious Case 8 PUSH.
+			// Math.max ensures neither side exceeds the baseline on the next comparison.
+			const afterStat7 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+			const mtime7 = afterStat7 ? Math.max(afterStat7.mtime, remoteMtime) : remoteMtime;
+			this.stateManager.setFile(path, { mtime: mtime7 });
 			this.log("PULL " + path);
 			return;
 		}
@@ -274,7 +287,14 @@ export class SyncEngine {
 			await this.plugin.app.vault.modify(file, merged);
 		}
 		await this.client.put(path, merged);
-		this.stateManager.setFile(path, { mtime: Date.now() });
+		// Re-stat after vault.modify() to get the actual OS-assigned mtime.
+		// Date.now() at call-site is captured before the async write completes and
+		// will exceed both the local OS mtime and the server mtime, causing both sides
+		// to look older than the baseline on the next sync → the file is permanently
+		// frozen (neither Case 7 nor Case 8 fires, since both require mtime > baseline).
+		const afterStat = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+		const mtimeConflict = afterStat ? afterStat.mtime : remoteMtime;
+		this.stateManager.setFile(path, { mtime: mtimeConflict });
 		this.log("CONFLICT " + path + " — merged");
 	}
 
