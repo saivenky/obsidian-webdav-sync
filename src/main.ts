@@ -56,9 +56,17 @@ export default class WebDAVSyncPlugin extends Plugin {
 	togglePause() {
 		this.paused = !this.paused;
 		this.pluginData["paused"] = this.paused;
-		this.saveData(this.pluginData);
 		this.updateStatusBar();
-		if (!this.paused) this.syncEngine.requestSync();
+		if (!this.paused) {
+			// Don't call saveData here: the sync will call stateManager.save() at the
+			// end, which persists pluginData (including the updated paused flag).
+			// Calling saveData() here before the sync runs races with stateManager.save()
+			// and can overwrite fresh syncState with a stale snapshot on disk.
+			this.syncEngine.requestSync();
+		} else {
+			// When pausing, no new sync starts, so explicitly persist the paused flag.
+			this.saveData(this.pluginData);
+		}
 	}
 
 	updateStatusBar() {

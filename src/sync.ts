@@ -297,6 +297,7 @@ export class SyncEngine {
 			localMtime > (stateEntry?.mtime ?? 0) &&
 			remoteMtime > (stateEntry?.mtime ?? 0)
 		) {
+			this.log(`CONFLICT-DIAG ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime ?? 0}`);
 			await this.conflict(path, localMtime, remoteMtime);
 		}
 	}

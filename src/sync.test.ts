@@ -216,6 +216,99 @@ test("cycle 3: after Case 7 pull with fix, Math.max(1180, 1150)=1180 → SKIP", 
 	assert.equal(decide(1180, 1150, 1180), "SKIP");
 });
 
+// ─── Multi-cycle stability: after any operation, a single-device second cycle must not CONFLICT ─────
+//
+// Invariant: after any sync operation stores state S, decide(nextLocal, remote, S) must never
+// return "CONFLICT" on a single device (no concurrent writes from another device).
+
+console.log("\nMulti-cycle stability: no CONFLICT on second cycle (single device)");
+
+// Test 1: Case 7 PULL — afterStat exactly equals remoteMtime (boundary of Math.max)
+test("Case 7 PULL: afterStat=remoteMtime boundary → Math.max picks same value → SKIP next cycle", () => {
+	// Cycle 1: state=1000, local=1000 (unchanged), remote=1100 → Case 7 PULL
+	assert.equal(decide(1000, 1100, 1000), "PULL");
+	// vault.modify() happens to assign OS mtime = 1100 (same as remoteMtime)
+	// Math.max(1100, 1100) = 1100 → state = 1100
+	// Cycle 2: local=1100=state, remote=1100=state → Case 6 SKIP
+	assert.equal(decide(1100, 1100, 1100), "SKIP");
+});
+
+// Test 2: Case 7 PULL — afterStat > remoteMtime; wrong formula (remoteMtime-only) causes PUSH
+test("Case 7 PULL: afterStat > remoteMtime; storing remoteMtime-only causes spurious PUSH; Math.max fix gives SKIP", () => {
+	// Cycle 1: state=1000, local=1000, remote=1100 → PULL
+	assert.equal(decide(1000, 1100, 1000), "PULL");
+	// vault.modify() assigns OS mtime = 1150 (> remoteMtime=1100)
+	// Bug path: state = remoteMtime = 1100 → local(1150) > state(1100) AND remote(1100)=state → Case 8 PUSH
+	assert.equal(decide(1150, 1100, 1100), "PUSH"); // confirms the regression
+	// Fix path: state = Math.max(1150, 1100) = 1150 → SKIP
+	assert.equal(decide(1150, 1100, 1150), "SKIP");
+});
+
+// Test 3: Case 8 PUSH — server mtime equals localMtime (no bounce needed)
+test("Case 8 PUSH: server assigns T_server=localMtime → state=localMtime → SKIP immediately", () => {
+	// Cycle 1: state=900, local=1000, remote=900 → PUSH. State = localMtime = 1000.
+	assert.equal(decide(1000, 900, 900), "PUSH");
+	// Server happens to assign T_server = 1000 (same as localMtime)
+	// Cycle 2: local=1000=state=1000, remote=1000=state → Case 6 SKIP
+	assert.equal(decide(1000, 1000, 1000), "SKIP");
+});
+
+// Test 4: Case 8 PUSH → Case 7 bounce → SKIP (three-cycle stability)
+test("Case 8 PUSH → server assigns higher mtime → one PULL bounce → SKIP (Math.max breaks oscillation)", () => {
+	// Cycle 1: state=900, local=1000, remote=900 → PUSH. State = 1000.
+	assert.equal(decide(1000, 900, 900), "PUSH");
+	// Server assigns T_server = 1100 > localMtime = state = 1000
+	// Cycle 2: remote(1100) > state(1000) AND local(1000)=state → Case 7 bounce
+	assert.equal(decide(1000, 1100, 1000), "PULL");
+	// vault.modify() assigns OS mtime = 1120. Math.max(1120, 1100) = 1120 → state = 1120
+	// Cycle 3: local=1120=state, remote=1100 < state → SKIP
+	assert.equal(decide(1120, 1100, 1120), "SKIP");
+});
+
+// Test 5: Case 9 CONFLICT — server mtime > afterStat → one PULL bounce → SKIP
+test("Case 9 CONFLICT: server mtime > afterStat → state=afterStat → one PULL bounce → SKIP", () => {
+	// Cycle 1: state=900, local=1000, remote=1100 → CONFLICT
+	assert.equal(decide(1000, 1100, 900), "CONFLICT");
+	// vault.modify() assigns afterStat=1050. client.put() → server mtime=1200. State = 1050.
+	// Cycle 2: remote(1200) > state(1050) AND local(1050)=state → Case 7 bounce
+	assert.equal(decide(1050, 1200, 1050), "PULL");
+	// vault.modify() assigns afterStat2=1250. Math.max(1250, 1200) = 1250 → state = 1250
+	// Cycle 3: local=1250=state, remote=1200 < state → SKIP
+	assert.equal(decide(1250, 1200, 1250), "SKIP");
+});
+
+// Test 6: Case 9 CONFLICT — server mtime < afterStat → SKIP immediately (no bounce)
+test("Case 9 CONFLICT: afterStat > server mtime → state=afterStat → SKIP immediately", () => {
+	// Cycle 1: state=900, local=1000, remote=1100 → CONFLICT
+	assert.equal(decide(1000, 1100, 900), "CONFLICT");
+	// vault.modify() assigns afterStat=1300 (> server's 1150). State = 1300.
+	// Cycle 2: local=1300=state, remote=1150 < state → no case fires → SKIP
+	assert.equal(decide(1300, 1150, 1300), "SKIP");
+});
+
+// Test 7: Case 5.5 bootstrap PULL — Math.max(afterStat, remoteMtime) keeps SKIP on cycle 2
+test("Bootstrap PULL (5.5): Math.max(afterStat, remoteMtime) ≥ both sides → SKIP on cycle 2", () => {
+	// No state, local=800, remote=1000 → remote newer → PULL bootstrap
+	// vault.modify() assigns afterStat=1050. Math.max(1050, 1000) = 1050 → state = 1050
+	// Cycle 2: local=1050=state, remote=1000 < state → SKIP
+	assert.equal(decide(1050, 1000, 1050), "SKIP");
+	// Bug path: storing only remoteMtime(1000) → local(1050) > state(1000) → PUSH
+	assert.equal(decide(1050, 1000, 1000), "PUSH"); // confirms the regression
+});
+
+// Test 8: Case 5.5 bootstrap PUSH — state=localMtime; server assigns higher mtime → one bounce → SKIP
+test("Bootstrap PUSH (5.5): state=localMtime → server assigns higher mtime → one PULL bounce → SKIP", () => {
+	// No state, local=1000, remote=800 → local newer → PUSH bootstrap. State = localMtime = 1000.
+	// Server assigns T_server = 1100 > localMtime = state = 1000
+	// Cycle 2: remote(1100) > state(1000) AND local(1000)=state → Case 7 bounce
+	assert.equal(decide(1000, 1100, 1000), "PULL");
+	// vault.modify() assigns afterStat=1150. Math.max(1150, 1100) = 1150 → state = 1150
+	// Cycle 3: local=1150=state, remote=1100 < state → SKIP
+	assert.equal(decide(1150, 1100, 1150), "SKIP");
+	// Bug path: bootstrap PUSH storing remoteMtime(800) → both 1000 > 800 AND 1100 > 800 → CONFLICT
+	assert.equal(decide(1000, 1100, 800), "CONFLICT"); // confirms regression if wrong formula
+});
+
 // ─── isSymlink: symlinked files must be skipped to avoid infinite conflict loop ─
 //
 // CLAUDE.md → symlink to AGENTS.md in vault root.
