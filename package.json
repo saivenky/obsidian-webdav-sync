@@ -1,0 +1,23 @@
+{
+	"name": "obsidian-webdav-sync",
+	"version": "0.1.0",
+	"description": "Sync your Obsidian vault with a self-hosted WebDAV server over Tailscale.",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [],
+	"license": "GPL-3.0-only",
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"esbuild": "^0.21.0",
+		"tslib": "2.4.0",
+		"typescript": "^5.0.0"
+	},
+	"dependencies": {
+		"obsidian": "latest"
+	}
+}

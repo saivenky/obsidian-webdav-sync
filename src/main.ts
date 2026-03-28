@@ -1,0 +1,75 @@
+import { Plugin } from "obsidian";
+import { WebDAVSyncSettings, DEFAULT_SETTINGS, WebDAVSyncSettingTab } from "settings";
+import { SyncEngine } from "sync";
+
+export default class WebDAVSyncPlugin extends Plugin {
+	settings: WebDAVSyncSettings = DEFAULT_SETTINGS;
+	syncEngine!: SyncEngine;
+	statusBarItem!: HTMLElement;
+	private pollIntervalId: number | undefined;
+
+	async onload() {
+		await this.loadSettings();
+
+		this.syncEngine = new SyncEngine(this);
+		await this.syncEngine.init();
+
+		this.statusBarItem = this.addStatusBarItem();
+		this.statusBarItem.setText("WebDAV: Ready");
+		this.statusBarItem.onClickEvent(() => this.syncEngine.requestSync());
+
+		this.addRibbonIcon("refresh-cw", "Sync now", () => this.syncEngine.requestSync());
+
+		this.addSettingTab(new WebDAVSyncSettingTab(this.app, this));
+
+		// Sync on layout ready
+		this.app.workspace.onLayoutReady(() => this.syncEngine.requestSync());
+
+		// Sync on file modify (debounced 5s)
+		let debounceTimer: number | undefined;
+		this.registerEvent(
+			this.app.vault.on("modify", () => {
+				if (this.syncEngine.suppressNextModifyTrigger) {
+					this.syncEngine.suppressNextModifyTrigger = false;
+					return;
+				}
+				window.clearTimeout(debounceTimer);
+				debounceTimer = window.setTimeout(() => this.syncEngine.requestSync(), 5000);
+			})
+		);
+
+		// Foreground poll
+		this.resetPollInterval();
+	}
+
+	resetPollInterval() {
+		if (this.pollIntervalId !== undefined) {
+			window.clearInterval(this.pollIntervalId);
+		}
+		this.pollIntervalId = window.setInterval(() => {
+			if (document.visibilityState === "visible") {
+				this.syncEngine.requestSync();
+			}
+		}, this.settings.pollIntervalSec * 1000);
+	}
+
+	async onunload() {
+		if (this.pollIntervalId !== undefined) {
+			window.clearInterval(this.pollIntervalId);
+		}
+		// Best-effort state flush — not awaited by Obsidian on mobile
+		await this.syncEngine.stateManager.save();
+	}
+
+	async loadSettings() {
+		const data = (await this.loadData()) as Record<string, unknown> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.["settings"] as Partial<WebDAVSyncSettings>);
+	}
+
+	async saveSettings() {
+		const data = ((await this.loadData()) as Record<string, unknown> | null) ?? {};
+		data["settings"] = this.settings;
+		await this.saveData(data);
+		this.syncEngine?.rebuildClient();
+	}
+}
