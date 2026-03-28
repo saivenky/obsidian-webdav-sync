@@ -309,6 +309,44 @@ test("Bootstrap PUSH (5.5): state=localMtime → server assigns higher mtime →
 	assert.equal(decide(1000, 1100, 800), "CONFLICT"); // confirms regression if wrong formula
 });
 
+// ─── Bug 4: PUSH cases don't re-stat after client.put() on same-filesystem WebDAV ─
+//
+// When the WebDAV server serves from the same directory as the vault, client.put()
+// writes to the same inode on disk, bumping the local file's mtime to current wall
+// clock. PUSH stores the pre-PUT localMtime as state, so on cycle 2 both local and
+// remote exceed state → CONFLICT.
+//
+// Fix: re-stat after client.put() in all PUSH cases and store afterStat.mtime.
+// On separate-filesystem setups, afterStat.mtime == pre-PUT localMtime (no change).
+// On same-filesystem setups, afterStat.mtime captures the PUT-assigned mtime.
+
+console.log("\nBug 4: PUSH cases don't re-stat after client.put() on same-filesystem WebDAV");
+
+test("PUSH-BOOT bug: pre-PUT localMtime stored as state; PUT updates local; cycle 2 CONFLICTs", () => {
+	// No state, local=1000 (5hr-old file), remote=800 → local newer → PUSH-BOOT.
+	// Buggy: stores state = localMtime = 1000.
+	// client.put() writes through WebDAV → same inode → OS mtime becomes 5000 (wall clock).
+	// Server also reports 5000 (same file). Cycle 2: both > state=1000 → CONFLICT.
+	assert.equal(decide(5000, 5000, 1000), "CONFLICT"); // confirms bug
+});
+
+test("PUSH-BOOT fix: re-stat after PUT stores afterStat.mtime=5000 → cycle 2 SKIPs", () => {
+	// Fixed: stores state = afterStat.mtime = 5000.
+	// Cycle 2: local=5000=state, remote=5000=state → Case 6 SKIP.
+	assert.equal(decide(5000, 5000, 5000), "SKIP");
+});
+
+test("Case 8 PUSH bug: pre-PUT localMtime stored; PUT updates local; cycle 2 CONFLICTs", () => {
+	// state=900, local=1000, remote=900 → Case 8 PUSH. Buggy: stores state=1000.
+	// client.put() → same inode → local mtime becomes 5000. Server also 5000.
+	// Cycle 2: local=5000 > state=1000, remote=5000 > state=1000 → CONFLICT.
+	assert.equal(decide(5000, 5000, 1000), "CONFLICT"); // confirms bug
+});
+
+test("Case 8 PUSH fix: re-stat after PUT stores afterStat.mtime=5000 → cycle 2 SKIPs", () => {
+	assert.equal(decide(5000, 5000, 5000), "SKIP");
+});
+
 // ─── isSymlink: symlinked files must be skipped to avoid infinite conflict loop ─
 //
 // CLAUDE.md → symlink to AGENTS.md in vault root.
