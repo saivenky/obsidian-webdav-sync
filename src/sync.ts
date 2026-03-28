@@ -258,22 +258,27 @@ export class SyncEngine {
 			return;
 		}
 
-		// Case 6: In sync — skip
+		// Case 6: Neither side changed since last sync — skip.
+		// Use <= instead of === to tolerate server second-precision truncation
+		// (remote may be up to 999ms less than state after a PUSH) and the case
+		// where Math.max stored a state higher than remoteMtime after a PULL.
 		if (
 			localMtime !== null &&
 			remoteMtime !== null &&
-			localMtime === stateEntry?.mtime &&
-			remoteMtime === stateEntry?.mtime
+			localMtime <= (stateEntry?.mtime ?? -1) &&
+			remoteMtime <= (stateEntry?.mtime ?? -1)
 		) {
 			this.log(`SKIP-INSYNC ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime}`);
 			return;
 		}
 
 		// Case 7: Remote newer, local unchanged → pull
+		// Use <= for local: handles case where Math.max stored state > afterStat.
 		if (
 			remoteMtime !== null &&
 			remoteMtime > (stateEntry?.mtime ?? 0) &&
-			localMtime === stateEntry?.mtime
+			localMtime !== null &&
+			localMtime <= (stateEntry?.mtime ?? 0)
 		) {
 			const content = await this.client.get(path);
 			const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(path));
@@ -293,10 +298,12 @@ export class SyncEngine {
 		}
 
 		// Case 8: Local newer, remote unchanged → push
+		// Use <= for remote: handles case where Math.max stored state > remoteMtime after a PULL.
 		if (
 			localMtime !== null &&
 			localMtime > (stateEntry?.mtime ?? 0) &&
-			remoteMtime === stateEntry?.mtime
+			remoteMtime !== null &&
+			remoteMtime <= (stateEntry?.mtime ?? 0)
 		) {
 			const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
 			await this.client.put(path, content);
