@@ -1,3 +1,5 @@
+import { requestUrl, RequestUrlResponse } from "obsidian";
+
 export interface PropfindEntry {
 	path: string;   // vault-relative, e.g. "Daily/2026-03-27.md"
 	mtime: number;  // Unix ms
@@ -30,29 +32,34 @@ export class WebDAVClient {
 		path: string,
 		body?: string,
 		extraHeaders?: Record<string, string>
-	): Promise<Response> {
+	): Promise<RequestUrlResponse> {
 		const url = this.baseUrl.replace(/\/$/, "") + "/" + path.replace(/^\//, "");
-		const controller = new AbortController();
-		const timer = window.setTimeout(() => controller.abort(), this.timeoutMs);
+
+		const timeout = new Promise<never>((_, reject) =>
+			window.setTimeout(
+				() => reject(new WebDAVError("Request timed out: " + path)),
+				this.timeoutMs
+			)
+		);
 
 		try {
-			const res = await fetch(url, {
-				method,
-				headers: {
-					Authorization: this.authHeader(),
-					...extraHeaders,
-				},
-				body,
-				signal: controller.signal,
-			});
+			const res = await Promise.race([
+				requestUrl({
+					url,
+					method,
+					headers: {
+						Authorization: this.authHeader(),
+						...extraHeaders,
+					},
+					body,
+					throw: false,
+				}),
+				timeout,
+			]);
 			return res;
 		} catch (e) {
-			if ((e as Error).name === "AbortError") {
-				throw new WebDAVError("Request timed out: " + path);
-			}
+			if (e instanceof WebDAVError) throw e;
 			throw new WebDAVError("Network error: " + (e as Error).message);
-		} finally {
-			window.clearTimeout(timer);
 		}
 	}
 
@@ -71,12 +78,7 @@ export class WebDAVClient {
 			throw new WebDAVError("PROPFIND failed: " + path, res.status);
 		}
 
-		const ct = res.headers.get("content-type") ?? "";
-		if (!ct.includes("xml") && !ct.includes("multistatus")) {
-			throw new WebDAVError("PROPFIND unexpected content-type: " + ct);
-		}
-
-		const xml = await res.text();
+		const xml = res.text;
 		const doc = new DOMParser().parseFromString(xml, "application/xml");
 		const NS = "DAV:";
 		const responses = Array.from(doc.getElementsByTagNameNS(NS, "response"));
@@ -84,7 +86,6 @@ export class WebDAVClient {
 
 		return responses.map(r => {
 			const href = r.getElementsByTagNameNS(NS, "href")[0]?.textContent ?? "";
-			// Strip base URL prefix and leading slash to get vault-relative path
 			let vaultPath = href.startsWith(basePrefix)
 				? href.slice(basePrefix.length)
 				: href;
@@ -100,23 +101,24 @@ export class WebDAVClient {
 
 	async get(path: string): Promise<string> {
 		const res = await this.request("GET", path);
-		if (!res.ok) throw new WebDAVError("GET failed: " + path, res.status);
-		return res.text();
+		if (res.status < 200 || res.status >= 300) {
+			throw new WebDAVError("GET failed: " + path, res.status);
+		}
+		return res.text;
 	}
 
 	async put(path: string, content: string): Promise<void> {
 		const res = await this.request("PUT", path, content, {
 			"Content-Type": "text/plain; charset=utf-8",
 		});
-		if (!res.ok && res.status !== 201 && res.status !== 204) {
+		if (res.status !== 200 && res.status !== 201 && res.status !== 204) {
 			throw new WebDAVError("PUT failed: " + path, res.status);
 		}
 	}
 
 	async delete(path: string): Promise<void> {
 		const res = await this.request("DELETE", path);
-		// 404 is acceptable — idempotent delete
-		if (!res.ok && res.status !== 404) {
+		if (res.status !== 200 && res.status !== 204 && res.status !== 404) {
 			throw new WebDAVError("DELETE failed: " + path, res.status);
 		}
 	}
@@ -124,7 +126,7 @@ export class WebDAVClient {
 	async mkcol(path: string): Promise<void> {
 		const res = await this.request("MKCOL", path);
 		// 405 Method Not Allowed usually means it already exists
-		if (!res.ok && res.status !== 405) {
+		if (res.status !== 200 && res.status !== 201 && res.status !== 405) {
 			throw new WebDAVError("MKCOL failed: " + path, res.status);
 		}
 	}
