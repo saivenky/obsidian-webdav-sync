@@ -1,9 +1,10 @@
-import { TFile, normalizePath } from "obsidian";
+import { TFile, normalizePath, FileSystemAdapter } from "obsidian";
 import type WebDAVSyncPlugin from "main";
 import { WebDAVClient, PropfindEntry } from "webdav";
 import { SyncStateManager } from "sync-state";
 import { mergeConflict } from "conflict";
 import type { WebDAVSyncSettings } from "settings";
+import { isSymlink } from "symlink";
 
 const LOG_MAX_LINES = 1000;
 const LOG_PATH = ".obsidian/plugins/obsidian-webdav-sync/sync-log.txt";
@@ -134,6 +135,13 @@ export class SyncEngine {
 	}
 
 	private async decideFile(path: string): Promise<void> {
+		// Skip symlinks: writing through one path would modify another path's inode,
+		// causing both to appear changed on every cycle → infinite conflict loop.
+		if (this.plugin.app.vault.adapter instanceof FileSystemAdapter) {
+			const absPath = this.plugin.app.vault.adapter.getFullPath(normalizePath(path));
+			if (isSymlink(absPath)) return;
+		}
+
 		const remote = this.currentRemoteFiles.get(path);
 		const stateEntry = this.stateManager.getFile(path);
 		const localStat = await this.plugin.app.vault.adapter.stat(normalizePath(path));
