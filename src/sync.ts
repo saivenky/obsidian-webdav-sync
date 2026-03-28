@@ -8,6 +8,10 @@ import type { WebDAVSyncSettings } from "settings";
 const LOG_MAX_LINES = 1000;
 const LOG_PATH = ".obsidian/plugins/obsidian-webdav-sync/sync-log.txt";
 
+const ALLOWED_EXTENSIONS = new Set([
+	".md", ".canvas", ".css", ".js", ".json", ".txt", ".yaml", ".yml",
+]);
+
 export class SyncEngine {
 	stateManager: SyncStateManager;
 	suppressNextModifyTrigger = false;
@@ -266,7 +270,19 @@ export class SyncEngine {
 		) {
 			return true;
 		}
-		return this.settings.excludedPaths.some(p => path.startsWith(p));
+
+		// Exclude any path containing a .git directory component
+		if (path.split("/").some(part => part === ".git")) return true;
+
+		// Exclude by configured prefix rules
+		if (this.settings.excludedPaths.some(p => path.startsWith(p))) return true;
+
+		// Only sync known text-safe file types
+		const dot = path.lastIndexOf(".");
+		const ext = dot !== -1 ? path.slice(dot).toLowerCase() : "";
+		if (ext && !ALLOWED_EXTENSIONS.has(ext)) return true;
+
+		return false;
 	}
 
 	private async log(entry: string): Promise<void> {

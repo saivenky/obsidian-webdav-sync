@@ -4,12 +4,21 @@ import { SyncEngine } from "sync";
 
 export default class WebDAVSyncPlugin extends Plugin {
 	settings: WebDAVSyncSettings = DEFAULT_SETTINGS;
+	// Single canonical data object — loaded once from disk at startup.
+	// All reads/writes go through this object; saveData() is the only disk write.
+	pluginData: Record<string, unknown> = {};
 	syncEngine!: SyncEngine;
 	statusBarItem!: HTMLElement;
 	private pollIntervalId: number | undefined;
 
 	async onload() {
-		await this.loadSettings();
+		// Single disk read
+		this.pluginData = ((await this.loadData()) as Record<string, unknown>) ?? {};
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			this.pluginData["settings"] as Partial<WebDAVSyncSettings>
+		);
 
 		this.syncEngine = new SyncEngine(this);
 		await this.syncEngine.init();
@@ -57,19 +66,12 @@ export default class WebDAVSyncPlugin extends Plugin {
 		if (this.pollIntervalId !== undefined) {
 			window.clearInterval(this.pollIntervalId);
 		}
-		// Best-effort state flush — not awaited by Obsidian on mobile
 		await this.syncEngine.stateManager.save();
 	}
 
-	async loadSettings() {
-		const data = (await this.loadData()) as Record<string, unknown> | null;
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.["settings"] as Partial<WebDAVSyncSettings>);
-	}
-
 	async saveSettings() {
-		const data = ((await this.loadData()) as Record<string, unknown> | null) ?? {};
-		data["settings"] = this.settings;
-		await this.saveData(data);
+		this.pluginData["settings"] = this.settings;
+		await this.saveData(this.pluginData);
 		this.syncEngine?.rebuildClient();
 	}
 }
