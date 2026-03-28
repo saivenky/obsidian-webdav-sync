@@ -27,13 +27,22 @@ export class WebDAVClient {
 		return "Basic " + btoa(this.username + ":" + this.password);
 	}
 
+	private buildUrl(path: string): string {
+		const base = this.baseUrl.replace(/\/$/, "");
+		const encoded = path
+			.split("/")
+			.map(seg => encodeURIComponent(seg))
+			.join("/");
+		return base + "/" + encoded;
+	}
+
 	private async request(
 		method: string,
 		path: string,
 		body?: string,
 		extraHeaders?: Record<string, string>
 	): Promise<RequestUrlResponse> {
-		const url = this.baseUrl.replace(/\/$/, "") + "/" + path.replace(/^\//, "");
+		const url = this.buildUrl(path);
 
 		const timeout = new Promise<never>((_, reject) =>
 			window.setTimeout(
@@ -90,6 +99,11 @@ export class WebDAVClient {
 				? href.slice(basePrefix.length)
 				: href;
 			vaultPath = vaultPath.replace(/^\//, "");
+			try {
+				vaultPath = decodeURIComponent(vaultPath);
+			} catch {
+				// malformed URI — use as-is
+			}
 
 			const lastModified = r.getElementsByTagNameNS(NS, "getlastmodified")[0]?.textContent ?? "";
 			const mtime = lastModified ? Date.parse(lastModified) : 0;

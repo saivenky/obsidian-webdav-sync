@@ -24,8 +24,8 @@ export class SyncStateManager {
 	constructor(private plugin: WebDAVSyncPlugin) {}
 
 	async load(): Promise<void> {
-		const data = (await this.plugin.loadData()) as Record<string, unknown> | null;
-		const raw = data?.["syncState"] as Partial<SyncState> | undefined;
+		// Read from in-memory canonical data — no disk read
+		const raw = this.plugin.pluginData["syncState"] as Partial<SyncState> | undefined;
 
 		if (!raw || raw.version !== 1) {
 			this.state = emptyState();
@@ -41,9 +41,9 @@ export class SyncStateManager {
 	}
 
 	async save(): Promise<void> {
-		const data = ((await this.plugin.loadData()) as Record<string, unknown> | null) ?? {};
-		data["syncState"] = this.state;
-		await this.plugin.saveData(data);
+		// Write into canonical data object and flush to disk once
+		this.plugin.pluginData["syncState"] = this.state;
+		await this.plugin.saveData(this.plugin.pluginData);
 	}
 
 	private pruneTombstones(): void {
