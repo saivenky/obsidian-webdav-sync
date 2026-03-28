@@ -67,6 +67,11 @@ export class SyncEngine {
 	}
 
 	async requestSync(): Promise<void> {
+		// Check paused first: debounce timers and pendingSync fire requestSync()
+		// directly (bypassing the paused guard in the vault.on("modify") handler),
+		// so a stale debounce from a conflict storm would relaunch a sync even after
+		// the user paused — perpetuating the storm.
+		if (this.plugin.paused) return;
 		if (this.syncing) {
 			this.pendingSync = true;
 			return;
