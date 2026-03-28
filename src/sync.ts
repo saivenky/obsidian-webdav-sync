@@ -268,7 +268,6 @@ export class SyncEngine {
 			localMtime <= (stateEntry?.mtime ?? -1) &&
 			remoteMtime <= (stateEntry?.mtime ?? -1)
 		) {
-			this.log(`SKIP-INSYNC ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime}`);
 			return;
 		}
 
