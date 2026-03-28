@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { Plugin, TFile, Menu } from "obsidian";
 import { WebDAVSyncSettings, DEFAULT_SETTINGS, WebDAVSyncSettingTab } from "settings";
 import { SyncEngine } from "sync";
 
@@ -28,8 +28,36 @@ export default class WebDAVSyncPlugin extends Plugin {
 		this.statusBarItem.onClickEvent(() => this.togglePause());
 
 		this.addRibbonIcon("refresh-cw", "Sync now", () => {
-			if (!this.paused) this.syncEngine.requestSync();
+			this.syncEngine.requestSync(true);
 		});
+
+		this.addCommand({
+			id: "sync-now",
+			name: "Sync now",
+			callback: () => this.syncEngine.requestSync(true),
+		});
+
+		this.addCommand({
+			id: "sync-current-file",
+			name: "Sync current file",
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file) return false;
+				if (!checking) this.syncEngine.requestSyncFile(file.path);
+				return true;
+			},
+		});
+
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu: Menu, file) => {
+				if (!(file instanceof TFile)) return;
+				menu.addItem((item) => {
+					item.setTitle("Sync this file")
+						.setIcon("refresh-cw")
+						.onClick(() => this.syncEngine.requestSyncFile(file.path));
+				});
+			})
+		);
 
 		this.addSettingTab(new WebDAVSyncSettingTab(this.app, this));
 
@@ -38,16 +66,28 @@ export default class WebDAVSyncPlugin extends Plugin {
 		});
 
 		let debounceTimer: number | undefined;
+		const scheduleSync = () => {
+			if (this.paused) return;
+			window.clearTimeout(debounceTimer);
+			debounceTimer = window.setTimeout(() => this.syncEngine.requestSync(), 5000);
+		};
+
 		this.registerEvent(
 			this.app.vault.on("modify", () => {
-				if (this.paused) return;
 				if (this.syncEngine.suppressNextModifyTrigger) {
 					this.syncEngine.suppressNextModifyTrigger = false;
 					return;
 				}
-				window.clearTimeout(debounceTimer);
-				debounceTimer = window.setTimeout(() => this.syncEngine.requestSync(), 5000);
+				scheduleSync();
 			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("create", () => scheduleSync())
+		);
+
+		this.registerEvent(
+			this.app.vault.on("delete", () => scheduleSync())
 		);
 
 		this.resetPollInterval();
