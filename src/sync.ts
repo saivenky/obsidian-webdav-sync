@@ -6,7 +6,7 @@ import { mergeConflict } from "conflict";
 import type { WebDAVSyncSettings } from "settings";
 import { isSymlink } from "symlink";
 
-const LOG_MAX_LINES = 1000;
+const LOG_MAX_LINES = 50000;
 const LOG_PATH = ".obsidian/plugins/obsidian-webdav-sync/sync-log.txt";
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -17,16 +17,18 @@ export class SyncEngine {
 	stateManager: SyncStateManager;
 	suppressNextModifyTrigger = false;
 
+	private cycleCount = 0;
 	private client: WebDAVClient;
 	private syncing = false;
 	private pendingSync = false;
 	private currentRemoteFiles: Map<string, PropfindEntry> = new Map();
 
 	constructor(
-		private plugin: WebDAVSyncPlugin
+		private plugin: WebDAVSyncPlugin,
+		clientOverride?: WebDAVClient
 	) {
 		this.stateManager = new SyncStateManager(plugin);
-		this.client = this.buildClient();
+		this.client = clientOverride ?? this.buildClient();
 	}
 
 	private get settings(): WebDAVSyncSettings {
@@ -98,6 +100,9 @@ export class SyncEngine {
 			return;
 		}
 
+		this.cycleCount++;
+		const cycle = this.cycleCount;
+		this.log(`CYCLE-START #${cycle} state-entries=${this.stateManager.entries().length}`);
 		this.setStatus("Syncing…");
 		this.currentRemoteFiles = new Map();
 
@@ -134,6 +139,7 @@ export class SyncEngine {
 		}
 
 		await this.stateManager.save();
+		this.log(`CYCLE-END #${cycle} state-entries=${this.stateManager.entries().length} saved`);
 		this.setStatus("Synced " + new Date().toLocaleTimeString());
 	}
 
@@ -203,7 +209,7 @@ export class SyncEngine {
 			const afterStat4 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
 			const mtime4 = afterStat4 ? Math.max(afterStat4.mtime, remoteMtime!) : remoteMtime!;
 			this.stateManager.setFile(path, { mtime: mtime4 });
-			this.log("PULL " + path);
+			this.log(`PULL-NEW ${path} remote=${remoteMtime} after=${afterStat4?.mtime} →state=${mtime4}`);
 			return;
 		}
 
@@ -212,8 +218,13 @@ export class SyncEngine {
 			const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
 			await this.ensureParentDirs(path);
 			await this.client.put(path, content);
-			this.stateManager.setFile(path, { mtime: localMtime });
-			this.log("PUSH " + path);
+			// Re-stat: on same-filesystem WebDAV servers, client.put() writes to the
+			// same inode, bumping local mtime to current wall clock. Storing the
+			// pre-PUT localMtime would make local look changed on the next cycle.
+			const afterStat5 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+			const mtime5 = afterStat5 ? afterStat5.mtime : localMtime;
+			this.stateManager.setFile(path, { mtime: mtime5 });
+			this.log(`PUSH-NEW ${path} local=${localMtime} after=${afterStat5?.mtime} →state=${mtime5}`);
 			return;
 		}
 
@@ -222,6 +233,7 @@ export class SyncEngine {
 		if (remote && !stateEntry && localMtime !== null && remoteMtime !== null) {
 			if (localMtime === remoteMtime) {
 				this.stateManager.setFile(path, { mtime: localMtime });
+				this.log(`SKIP-BOOT-EQUAL ${path} mtime=${localMtime}`);
 				return;
 			}
 			if (remoteMtime > localMtime) {
@@ -234,12 +246,14 @@ export class SyncEngine {
 				const afterStat55 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
 				const mtime55 = afterStat55 ? Math.max(afterStat55.mtime, remoteMtime) : remoteMtime;
 				this.stateManager.setFile(path, { mtime: mtime55 });
-				this.log("PULL " + path);
+				this.log(`PULL-BOOT ${path} local=${localMtime} remote=${remoteMtime} after=${afterStat55?.mtime} →state=${mtime55}`);
 			} else {
 				const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
 				await this.client.put(path, content);
-				this.stateManager.setFile(path, { mtime: localMtime });
-				this.log("PUSH " + path);
+				const afterStat55p = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+				const mtime55p = afterStat55p ? afterStat55p.mtime : localMtime;
+				this.stateManager.setFile(path, { mtime: mtime55p });
+				this.log(`PUSH-BOOT ${path} local=${localMtime} remote=${remoteMtime} after=${afterStat55p?.mtime} →state=${mtime55p}`);
 			}
 			return;
 		}
@@ -251,6 +265,7 @@ export class SyncEngine {
 			localMtime === stateEntry?.mtime &&
 			remoteMtime === stateEntry?.mtime
 		) {
+			this.log(`SKIP-INSYNC ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime}`);
 			return;
 		}
 
@@ -273,7 +288,7 @@ export class SyncEngine {
 			const afterStat7 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
 			const mtime7 = afterStat7 ? Math.max(afterStat7.mtime, remoteMtime) : remoteMtime;
 			this.stateManager.setFile(path, { mtime: mtime7 });
-			this.log("PULL " + path);
+			this.log(`PULL ${path} remote=${remoteMtime} after=${afterStat7?.mtime} →state=${mtime7}`);
 			return;
 		}
 
@@ -285,8 +300,10 @@ export class SyncEngine {
 		) {
 			const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
 			await this.client.put(path, content);
-			this.stateManager.setFile(path, { mtime: localMtime });
-			this.log("PUSH " + path);
+			const afterStat8 = await this.plugin.app.vault.adapter.stat(normalizePath(path));
+			const mtime8 = afterStat8 ? afterStat8.mtime : localMtime;
+			this.stateManager.setFile(path, { mtime: mtime8 });
+			this.log(`PUSH ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime} after=${afterStat8?.mtime} →state=${mtime8}`);
 			return;
 		}
 
@@ -299,7 +316,10 @@ export class SyncEngine {
 		) {
 			this.log(`CONFLICT-DIAG ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime ?? 0}`);
 			await this.conflict(path, localMtime, remoteMtime);
+			return;
 		}
+
+		this.log(`SKIP-UNMATCHED ${path} local=${localMtime} remote=${remoteMtime} state=${stateEntry?.mtime}`);
 	}
 
 	private async conflict(path: string, localMtime: number, remoteMtime: number): Promise<void> {
@@ -321,7 +341,7 @@ export class SyncEngine {
 		const afterStat = await this.plugin.app.vault.adapter.stat(normalizePath(path));
 		const mtimeConflict = afterStat ? afterStat.mtime : remoteMtime;
 		this.stateManager.setFile(path, { mtime: mtimeConflict });
-		this.log("CONFLICT " + path + " — merged");
+		this.log(`CONFLICT ${path} after=${afterStat?.mtime} →state=${mtimeConflict} — merged`);
 	}
 
 	private async ensureParentDirs(filePath: string): Promise<void> {
