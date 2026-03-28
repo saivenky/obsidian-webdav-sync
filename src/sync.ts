@@ -46,6 +46,18 @@ export class SyncEngine {
 		this.client = this.buildClient();
 	}
 
+	async resetState(): Promise<void> {
+		// Cancel any queued sync and wait for a running sync to finish before
+		// resetting. Without this, runSync()'s final stateManager.save() (line ~119)
+		// would overwrite the empty state written here, silently undoing the reset.
+		this.pendingSync = false;
+		while (this.syncing) {
+			await new Promise<void>(r => setTimeout(r, 100));
+		}
+		this.stateManager.reset();
+		await this.stateManager.save();
+	}
+
 	async init(): Promise<void> {
 		await this.stateManager.load();
 	}

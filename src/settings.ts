@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type WebDAVSyncPlugin from "main";
 
 export interface WebDAVSyncSettings {
@@ -139,8 +139,8 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					.setButtonText("Reset")
 					.setWarning()
 					.onClick(async () => {
-						await this.plugin.syncEngine.stateManager.reset();
-						await this.plugin.syncEngine.stateManager.save();
+						await this.plugin.syncEngine.resetState();
+						new Notice("Sync state reset. Next sync will re-bootstrap from scratch.");
 					})
 			);
 
