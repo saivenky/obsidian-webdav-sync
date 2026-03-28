@@ -187,6 +187,31 @@ export class SyncEngine {
 			return;
 		}
 
+		// Case 5.5: Both exist, no state → bootstrap. Never conflict-merge without a baseline.
+		// Equal mtimes (same file on Mac) → just record. One newer → take it.
+		if (remote && !stateEntry && localMtime !== null && remoteMtime !== null) {
+			if (localMtime === remoteMtime) {
+				this.stateManager.setFile(path, { mtime: localMtime });
+				return;
+			}
+			if (remoteMtime > localMtime) {
+				const content = await this.client.get(path);
+				const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(path));
+				if (file instanceof TFile) {
+					this.suppressNextModifyTrigger = true;
+					await this.plugin.app.vault.modify(file, content);
+				}
+				this.stateManager.setFile(path, { mtime: remoteMtime });
+				this.log("PULL " + path);
+			} else {
+				const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
+				await this.client.put(path, content);
+				this.stateManager.setFile(path, { mtime: localMtime });
+				this.log("PUSH " + path);
+			}
+			return;
+		}
+
 		// Case 6: In sync — skip
 		if (
 			localMtime !== null &&

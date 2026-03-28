@@ -82,4 +82,8 @@ export class SyncStateManager {
 	entries(): [string, FileState][] {
 		return Object.entries(this.state.files);
 	}
+
+	reset(): void {
+		this.state = emptyState();
+	}
 }

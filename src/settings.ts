@@ -116,6 +116,21 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// ── Danger zone ──────────────────────────────────────────────────────
+
+		new Setting(containerEl)
+			.setName("Reset sync state")
+			.setDesc("Wipes the local sync baseline. Next sync will re-bootstrap all files from scratch (no conflict merges).")
+			.addButton(btn =>
+				btn
+					.setButtonText("Reset")
+					.setWarning()
+					.onClick(async () => {
+						await this.plugin.syncEngine.stateManager.reset();
+						await this.plugin.syncEngine.stateManager.save();
+					})
+			);
+
 		// ── Sync log ──────────────────────────────────────────────────────────
 
 		new Setting(containerEl)
