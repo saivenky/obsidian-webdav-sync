@@ -19,8 +19,12 @@ export const DEFAULT_SETTINGS: WebDAVSyncSettings = {
 	requestTimeoutMs: 8000,
 };
 
+const LOG_PATH = ".obsidian/plugins/obsidian-webdav-sync/sync-log.txt";
+const LOG_TAIL_LINES = 50;
+
 export class WebDAVSyncSettingTab extends PluginSettingTab {
 	plugin: WebDAVSyncPlugin;
+	private logEl: HTMLPreElement | null = null;
 
 	constructor(app: App, plugin: WebDAVSyncPlugin) {
 		super(app, plugin);
@@ -111,5 +115,82 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
+		// ── Sync log ──────────────────────────────────────────────────────────
+
+		new Setting(containerEl)
+			.setName("Sync log")
+			.setDesc(`Last ${LOG_TAIL_LINES} entries`)
+			.addButton(btn =>
+				btn
+					.setButtonText("Sync now")
+					.onClick(async () => {
+						await this.plugin.syncEngine.requestSync();
+						await this.refreshLog();
+					})
+			)
+			.addButton(btn =>
+				btn
+					.setButtonText("Refresh")
+					.onClick(() => this.refreshLog())
+			)
+			.addButton(btn =>
+				btn
+					.setButtonText("Clear")
+					.setWarning()
+					.onClick(async () => {
+						await this.plugin.app.vault.adapter.write(LOG_PATH, "");
+						await this.refreshLog();
+					})
+			);
+
+		this.logEl = containerEl.createEl("pre", {
+			attr: {
+				style: [
+					"font-size: 11px",
+					"line-height: 1.4",
+					"max-height: 300px",
+					"overflow-y: auto",
+					"padding: 8px",
+					"border-radius: 4px",
+					"white-space: pre-wrap",
+					"word-break: break-all",
+					"background: var(--background-secondary)",
+					"color: var(--text-muted)",
+					"margin-top: 4px",
+				].join(";"),
+			},
+		});
+
+		this.refreshLog();
+	}
+
+	private async refreshLog(): Promise<void> {
+		if (!this.logEl) return;
+
+		let text = "";
+		try {
+			text = await this.plugin.app.vault.adapter.read(LOG_PATH);
+		} catch {
+			text = "(no log yet)";
+		}
+
+		const lines = text.split("\n").filter(l => l.trim().length > 0);
+		const tail = lines.slice(-LOG_TAIL_LINES);
+
+		// Colour ERROR lines red, CONFLICT orange
+		this.logEl.empty();
+		for (const line of tail) {
+			const span = this.logEl.createEl("span");
+			if (line.includes(" ERROR ")) {
+				span.style.color = "var(--text-error)";
+			} else if (line.includes(" CONFLICT ")) {
+				span.style.color = "var(--color-orange)";
+			}
+			span.setText(line + "\n");
+		}
+
+		// Scroll to bottom
+		this.logEl.scrollTop = this.logEl.scrollHeight;
 	}
 }
