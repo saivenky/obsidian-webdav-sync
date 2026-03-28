@@ -36,6 +36,19 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
+			.setName("Sync")
+			.setDesc(this.plugin.paused ? "Sync is paused. Click Resume to start syncing." : "Sync is active.")
+			.addButton(btn => {
+				btn
+					.setButtonText(this.plugin.paused ? "Resume" : "Pause")
+					.setCta()
+					.onClick(() => {
+						this.plugin.togglePause();
+						this.display(); // re-render to update label
+					});
+			});
+
+		new Setting(containerEl)
 			.setName("Server URL")
 			.setDesc("WebDAV server base URL (e.g. http://100.x.x.x:8080)")
 			.addText(text =>

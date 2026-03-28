@@ -4,40 +4,43 @@ import { SyncEngine } from "sync";
 
 export default class WebDAVSyncPlugin extends Plugin {
 	settings: WebDAVSyncSettings = DEFAULT_SETTINGS;
-	// Single canonical data object — loaded once from disk at startup.
-	// All reads/writes go through this object; saveData() is the only disk write.
 	pluginData: Record<string, unknown> = {};
 	syncEngine!: SyncEngine;
 	statusBarItem!: HTMLElement;
+	paused = true; // start paused — user must explicitly resume
 	private pollIntervalId: number | undefined;
 
 	async onload() {
-		// Single disk read
 		this.pluginData = ((await this.loadData()) as Record<string, unknown>) ?? {};
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
 			this.pluginData["settings"] as Partial<WebDAVSyncSettings>
 		);
+		// Restore paused state across reloads; default true
+		this.paused = (this.pluginData["paused"] as boolean) ?? true;
 
 		this.syncEngine = new SyncEngine(this);
 		await this.syncEngine.init();
 
 		this.statusBarItem = this.addStatusBarItem();
-		this.statusBarItem.setText("WebDAV: Ready");
-		this.statusBarItem.onClickEvent(() => this.syncEngine.requestSync());
+		this.updateStatusBar();
+		this.statusBarItem.onClickEvent(() => this.togglePause());
 
-		this.addRibbonIcon("refresh-cw", "Sync now", () => this.syncEngine.requestSync());
+		this.addRibbonIcon("refresh-cw", "Sync now", () => {
+			if (!this.paused) this.syncEngine.requestSync();
+		});
 
 		this.addSettingTab(new WebDAVSyncSettingTab(this.app, this));
 
-		// Sync on layout ready
-		this.app.workspace.onLayoutReady(() => this.syncEngine.requestSync());
+		this.app.workspace.onLayoutReady(() => {
+			if (!this.paused) this.syncEngine.requestSync();
+		});
 
-		// Sync on file modify (debounced 5s)
 		let debounceTimer: number | undefined;
 		this.registerEvent(
 			this.app.vault.on("modify", () => {
+				if (this.paused) return;
 				if (this.syncEngine.suppressNextModifyTrigger) {
 					this.syncEngine.suppressNextModifyTrigger = false;
 					return;
@@ -47,8 +50,23 @@ export default class WebDAVSyncPlugin extends Plugin {
 			})
 		);
 
-		// Foreground poll
 		this.resetPollInterval();
+	}
+
+	togglePause() {
+		this.paused = !this.paused;
+		this.pluginData["paused"] = this.paused;
+		this.saveData(this.pluginData);
+		this.updateStatusBar();
+		if (!this.paused) this.syncEngine.requestSync();
+	}
+
+	updateStatusBar() {
+		if (this.paused) {
+			this.statusBarItem.setText("WebDAV: Paused");
+		} else {
+			this.syncEngine.setStatus("Ready");
+		}
 	}
 
 	resetPollInterval() {
@@ -56,7 +74,7 @@ export default class WebDAVSyncPlugin extends Plugin {
 			window.clearInterval(this.pollIntervalId);
 		}
 		this.pollIntervalId = window.setInterval(() => {
-			if (document.visibilityState === "visible") {
+			if (!this.paused && document.visibilityState === "visible") {
 				this.syncEngine.requestSync();
 			}
 		}, this.settings.pollIntervalSec * 1000);
