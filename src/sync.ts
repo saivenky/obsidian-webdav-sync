@@ -68,12 +68,47 @@ export class SyncEngine {
 		this.plugin.statusBarItem?.setText("WebDAV: " + text);
 	}
 
-	async requestSync(): Promise<void> {
+	async requestSyncFile(path: string): Promise<void> {
+		if (this.syncing) return; // full sync already in progress — it will cover this file
+		this.syncing = true;
+		try {
+			if (!this.settings.serverUrl) {
+				this.setStatus("No server configured");
+				return;
+			}
+			this.setStatus("Syncing…");
+			// Fetch just this file's remote state
+			this.currentRemoteFiles = new Map();
+			try {
+				const entries = await this.client.propfind(path, "0");
+				for (const entry of entries) {
+					if (!entry.isDir) this.currentRemoteFiles.set(entry.path, entry);
+				}
+			} catch {
+				// file absent on server — currentRemoteFiles stays empty for this path
+			}
+			await this.decideFile(path);
+			await this.stateManager.save();
+			this.setStatus("Synced " + new Date().toLocaleTimeString());
+		} catch (e) {
+			const msg = (e as Error).message ?? String(e);
+			this.setStatus("Error: " + msg);
+			this.log("ERROR " + msg);
+		} finally {
+			this.syncing = false;
+			if (this.pendingSync) {
+				this.pendingSync = false;
+				this.requestSync();
+			}
+		}
+	}
+
+	async requestSync(force = false): Promise<void> {
 		// Check paused first: debounce timers and pendingSync fire requestSync()
 		// directly (bypassing the paused guard in the vault.on("modify") handler),
 		// so a stale debounce from a conflict storm would relaunch a sync even after
 		// the user paused — perpetuating the storm.
-		if (this.plugin.paused) return;
+		if (!force && this.plugin.paused) return;
 		if (this.syncing) {
 			this.pendingSync = true;
 			return;
