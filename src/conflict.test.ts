@@ -35,8 +35,11 @@ test("no content → empty sections", () => {
 	assert.deepEqual(parseFile(""), []);
 });
 
-test("only whitespace → empty sections", () => {
-	assert.deepEqual(parseFile("   \n  \n"), []);
+test("only whitespace → single anonymous section (whitespace preserved)", () => {
+	const secs = parseFile("   \n  \n");
+	assert.equal(secs.length, 1);
+	assert.equal(secs[0]!.header, "");
+	assert.equal(secs[0]!.content, "   \n  \n");
 });
 
 test("plain body with no headings", () => {
@@ -56,18 +59,24 @@ test("single ## heading with content", () => {
 test("frontmatter + heading section", () => {
 	const input = "---\ndate: 2026-01-01\n---\n\n## Notes\ncontent\n";
 	const secs = parseFile(input);
-	assert.equal(secs.length, 2);
+	// FM + anonymous preamble ("\n\n" gap) + Notes section
+	assert.equal(secs.length, 3);
 	assert.equal(secs[0]!.header, FRONTMATTER_SENTINEL);
 	assert.equal(secs[0]!.content, "---\ndate: 2026-01-01\n---");
-	assert.equal(secs[1]!.header, "## Notes");
-	assert.equal(secs[1]!.content, "content\n");
+	assert.equal(secs[1]!.header, "");
+	assert.equal(secs[1]!.content, "\n\n"); // the blank line between --- and ## Notes
+	assert.equal(secs[2]!.header, "## Notes");
+	assert.equal(secs[2]!.content, "content\n");
 });
 
 test("frontmatter only (no body sections)", () => {
 	const input = "---\ndate: 2026-01-01\n---\n";
 	const secs = parseFile(input);
-	assert.equal(secs.length, 1);
+	// FM + anonymous "\n" (the trailing newline after ---)
+	assert.equal(secs.length, 2);
 	assert.equal(secs[0]!.header, FRONTMATTER_SENTINEL);
+	assert.equal(secs[1]!.header, "");
+	assert.equal(secs[1]!.content, "\n");
 });
 
 test("unclosed frontmatter treated as plain body", () => {
@@ -144,6 +153,32 @@ idempotency(
 idempotency(
 	"empty file",
 	""
+);
+
+// Spacing-preservation idempotency — the join("\n\n") fix broke these
+idempotency(
+	"no blank line before ## heading (text directly before section)",
+	"*For each of the remaining parts, submit code after each coding task.*\n## Part 1\n- [x] Finish Part 1\n"
+);
+
+idempotency(
+	"two blank lines between sections (must not collapse to one)",
+	"## Notes\ncontent here\n\n\n## Tasks\n- do thing\n"
+);
+
+idempotency(
+	"three blank lines between sections (must not collapse)",
+	"## A\nline\n\n\n\n## B\nline\n"
+);
+
+idempotency(
+	"no blank line between frontmatter and first section",
+	"---\ndate: 2026-03-27\n---\n## Notes\ncontent\n"
+);
+
+idempotency(
+	"realistic daily note with # (h1) header and ## sections",
+	"---\ntitle: 2026-03-27\ndate: 2026-03-27\ntags: [daily]\nq1_hydration_2L: false\n---\n\n\n# Schedule\n\n- Morning\n\n## Email Briefing\nDeleted 9 | Archived 1\n\n## Notes\nsome notes here\n"
 );
 
 // ─── Blank line injection ─────────────────────────────────────────────────────

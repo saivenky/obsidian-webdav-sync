@@ -16,13 +16,17 @@ export function parseFile(text: string): Section[] {
 		if (end !== -1) {
 			const fmContent = body.slice(0, end + 4);
 			sections.push({ header: FRONTMATTER_SENTINEL, content: fmContent });
-			body = body.slice(end + 4).replace(/^\n/, "");
+			// Do NOT strip the leading \n here — the whitespace after closing ---
+			// belongs to the preamble section and preserves the gap before the first heading.
+			body = body.slice(end + 4);
 		}
 	}
 
-	// Split remainder on ## headings
+	// Split remainder on ## headings.
+	// Keep parts[0] even when whitespace-only: it encodes the gap between
+	// frontmatter and the first ## heading (e.g. "\n\n" = one blank line).
 	const parts = body.split(/^(## .+)$/m);
-	if (parts[0] !== undefined && parts[0].trim().length > 0) {
+	if (parts[0] !== undefined && parts[0].length > 0) {
 		sections.push({ header: "", content: parts[0] });
 	}
 
@@ -198,22 +202,20 @@ export function mergeConflict(
 		}
 	}
 
-	if (output.length === 0) return "";
-	return output.join("\n\n") + "\n";
+	// join("") — section content's own trailing newlines are the separators.
+	// No fixed separator is added; spacing is preserved exactly as parsed.
+	return output.join("");
 }
 
 function emitSection(sec: Section, output: string[], emitted: Set<Section>): void {
 	if (emitted.has(sec)) return;
 	emitted.add(sec);
-	// Strip trailing newlines — the join("\n\n") adds the separator, and we
-	// re-add a single trailing \n at the very end of mergeConflict.
-	const content = sec.content.replace(/\n+$/, "");
+	// Do NOT strip trailing newlines — section content's trailing whitespace
+	// IS the separator before the next section. join("") preserves it exactly.
 	if (sec.header === FRONTMATTER_SENTINEL || sec.header === "") {
-		output.push(content);
-	} else if (content.length > 0) {
-		output.push(sec.header + "\n" + content);
+		output.push(sec.content);
 	} else {
-		output.push(sec.header);
+		output.push(sec.header + "\n" + sec.content);
 	}
 }
 
