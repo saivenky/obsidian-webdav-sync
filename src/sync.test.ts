@@ -70,15 +70,17 @@ function decide(
 		return remoteMtime > localMtime ? "PULL" : "PUSH";
 	}
 
-	// Case 6: in sync
+	// Case 6: neither side changed (use <= to tolerate server second-precision truncation)
 	if (localMtime !== null && remoteMtime !== null &&
-		localMtime === stateMtime && remoteMtime === stateMtime) return "SKIP";
+		localMtime <= stateBase && remoteMtime <= stateBase) return "SKIP";
 
-	// Case 7: remote newer, local unchanged
-	if (remoteMtime !== null && remoteMtime > stateBase && localMtime === stateMtime) return "PULL";
+	// Case 7: remote newer, local unchanged (use <= for local)
+	if (remoteMtime !== null && remoteMtime > stateBase &&
+		localMtime !== null && localMtime <= stateBase) return "PULL";
 
-	// Case 8: local newer, remote unchanged
-	if (localMtime !== null && localMtime > stateBase && remoteMtime === stateMtime) return "PUSH";
+	// Case 8: local newer, remote unchanged (use <= for remote)
+	if (localMtime !== null && localMtime > stateBase &&
+		remoteMtime !== null && remoteMtime <= stateBase) return "PUSH";
 
 	// Case 9: both changed
 	if (localMtime !== null && remoteMtime !== null &&
@@ -345,6 +347,50 @@ test("Case 8 PUSH bug: pre-PUT localMtime stored; PUT updates local; cycle 2 CON
 
 test("Case 8 PUSH fix: re-stat after PUT stores afterStat.mtime=5000 → cycle 2 SKIPs", () => {
 	assert.equal(decide(5000, 5000, 5000), "SKIP");
+});
+
+// ─── Bug 5: Cases 6/7/8 use === for "unchanged" side; fails when server truncates to second precision ─
+//
+// After any PUSH, state = afterStat.mtime (ms precision, e.g. 1000).
+// Server reports second-precision: remoteMtime = floor(1000/1000)*1000 = 1000 (equal here),
+// but for sub-second values like state=1000863, remote=1000000.
+// Case 6 requires remote===state (fails), Case 7/8 require the "clean" side ===state (fails).
+// All fall through to SKIP-UNMATCHED — noisy but harmless for the truncation case.
+//
+// Deeper bug: after PULL stores state=Math.max(afterStat=1100, remoteMtime=900)=1100,
+// a local edit to 1200 with remote still at 900 should fire Case 8 PUSH.
+// But Case 8 requires remote===state (900≠1100) → missed → local edit never pushed.
+//
+// Fix: use <= instead of === for the "unchanged" side in Cases 6, 7, and 8.
+
+console.log("\nBug 5: Cases 6/7/8 use === for unchanged side; fails on server precision truncation");
+
+test("server truncation: local===state, remote=state-863ms → currently SKIP-UNMATCHED (silent correct skip)", () => {
+	// local=1000863=state, remote=1000000 (server truncated to second)
+	// No case matches with === checks → falls through to SKIP (correct action, wrong log)
+	// With <= fix: Case 6 fires (both ≤ state) → SKIP-INSYNC
+	assert.equal(decide(1000863, 1000000, 1000863), "SKIP");
+});
+
+test("stale remote bug: after PULL stores state=1100; local edit to 1200; remote still 900 → must PUSH", () => {
+	// PULL stored Math.max(afterStat=1100, remoteMtime=900) = 1100 as state.
+	// User edits locally → localMtime=1200. Remote unchanged at 900.
+	// Bug: Case 8 requires remote===state (900≠1100) → missed → SKIP (wrong! should be PUSH).
+	assert.equal(decide(1200, 900, 1100), "PUSH"); // FAILS before fix
+});
+
+test("stale remote: after PULL; remote still old; local unchanged → SKIP (not spurious PUSH)", () => {
+	// PULL stored state=1100. No local edit. Remote still 900.
+	// local(1100)===state(1100), remote(900)<state(1100) → should SKIP.
+	// With <= fix on Case 6: both ≤ state → SKIP-INSYNC ✓
+	assert.equal(decide(1100, 900, 1100), "SKIP");
+});
+
+test("stale local bug: after PUSH stores state=1100 via Math.max; remote updates to 1200; local still 1050 → must PULL", () => {
+	// PUSH stored state=1100. Remote updates to 1200 (someone else pushed).
+	// local(1050)<state(1100), remote(1200)>state(1100).
+	// Bug: Case 7 requires local===state (1050≠1100) → missed → SKIP (wrong! should be PULL).
+	assert.equal(decide(1050, 1200, 1100), "PULL"); // FAILS before fix
 });
 
 // ─── isSymlink: symlinked files must be skipped to avoid infinite conflict loop ─
