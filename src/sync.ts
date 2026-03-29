@@ -111,7 +111,7 @@ export class SyncEngine {
 		} catch (e) {
 			const msg = (e as Error).message ?? String(e);
 			this.setStatus("Error: " + msg);
-			this.log("ERROR " + msg);
+			await this.log("ERROR " + msg);
 		} finally {
 			this.syncing = false;
 			if (this.pendingSync) {
@@ -137,7 +137,7 @@ export class SyncEngine {
 		} catch (e) {
 			const msg = (e as Error).message ?? String(e);
 			this.setStatus("Error: " + msg);
-			this.log("ERROR " + msg);
+			await this.log("ERROR " + msg);
 		} finally {
 			this.syncing = false;
 			if (this.pendingSync) {
@@ -155,7 +155,7 @@ export class SyncEngine {
 
 		this.cycleCount++;
 		const cycle = this.cycleCount;
-		this.log(`CYCLE-START #${cycle} state-entries=${this.stateManager.entries().length}`);
+		await this.log(`CYCLE-START #${cycle} state-entries=${this.stateManager.entries().length}`);
 		this.setStatus("Syncing…");
 		this.currentRemoteFiles = new Map();
 
@@ -205,7 +205,7 @@ export class SyncEngine {
 		}
 
 		await this.stateManager.save();
-		this.log(`CYCLE-END #${cycle} state-entries=${this.stateManager.entries().length} saved`);
+		await this.log(`CYCLE-END #${cycle} state-entries=${this.stateManager.entries().length} saved`);
 		this.setStatus("Synced " + new Date().toLocaleTimeString());
 	}
 
