@@ -7,7 +7,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"preversion": "npm test && npm run build",
+		"version": "node version-bump.mjs && git add manifest.json versions.json main.js",
 		"test": "npx tsx src/conflict.test.ts && npx tsx src/sync.test.ts && npx tsx --tsconfig tsconfig.test.json src/sync-integration.test.ts"
 	},
 	"keywords": [],

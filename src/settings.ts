@@ -35,6 +35,8 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		// ── Pause / Resume ───────────────────────────────────────────────────
+
 		new Setting(containerEl)
 			.setName("Sync")
 			.setDesc(this.plugin.paused ? "Sync is paused. Click Resume to start syncing." : "Sync is active.")
@@ -47,6 +49,10 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 						this.display(); // re-render to update label
 					});
 			});
+
+		// ── Connection ───────────────────────────────────────────────────────
+
+		containerEl.createEl("h3", { text: "Connection" });
 
 		new Setting(containerEl)
 			.setName("Server URL")
@@ -84,20 +90,9 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					});
 			});
 
-		new Setting(containerEl)
-			.setName("Excluded paths")
-			.setDesc("One rule per line. 'Folder/' excludes a top-level folder. '**/__pycache__' excludes any dir with that name anywhere in the tree.")
-			.addTextArea(text =>
-				text
-					.setValue(this.plugin.settings.excludedPaths.join("\n"))
-					.onChange(async (value) => {
-						this.plugin.settings.excludedPaths = value
-							.split("\n")
-							.map(s => s.trim())
-							.filter(s => s.length > 0);
-						await this.plugin.saveSettings();
-					})
-			);
+		// ── Sync ─────────────────────────────────────────────────────────────
+
+		containerEl.createEl("h3", { text: "Sync" });
 
 		new Setting(containerEl)
 			.setName("Poll interval (seconds)")
@@ -129,7 +124,18 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// ── Excluded paths ───────────────────────────────────────────────────
+
+		containerEl.createEl("h3", { text: "Excluded paths" });
+		containerEl.createEl("p", {
+			text: "Folder/ excludes a top-level folder. **/name excludes any folder named name anywhere in the tree.",
+		});
+
+		this.renderExcludedList(containerEl);
+
 		// ── Danger zone ──────────────────────────────────────────────────────
+
+		containerEl.createEl("h3", { text: "Danger zone" });
 
 		new Setting(containerEl)
 			.setName("Reset sync state")
@@ -160,9 +166,11 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 
 		// ── Sync log ──────────────────────────────────────────────────────────
 
-		new Setting(containerEl)
-			.setName("Sync log")
-			.setDesc(`Last ${LOG_TAIL_LINES} entries`)
+		const details = containerEl.createEl("details");
+		details.setAttribute("open", "");
+		details.createEl("summary", { text: "Sync log" });
+
+		new Setting(details)
 			.addButton(btn =>
 				btn
 					.setButtonText("Sync now")
@@ -186,7 +194,7 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
-		this.logEl = containerEl.createEl("pre", {
+		this.logEl = details.createEl("pre", {
 			attr: {
 				style: [
 					"font-size: 11px",
@@ -205,6 +213,63 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 		});
 
 		this.refreshLog();
+	}
+
+	private renderExcludedList(containerEl: HTMLElement): void {
+		const listEl = containerEl.createEl("div");
+
+		const renderRow = (rule: string, index: number): void => {
+			const row = listEl.createEl("div", {
+				attr: { style: "display:flex;align-items:center;gap:8px;margin-bottom:4px;" },
+			});
+			row.createEl("span", {
+				text: rule,
+				attr: { style: "font-family:monospace;flex:1;font-size:13px;" },
+			});
+			const removeBtn = row.createEl("button", { text: "×" });
+			removeBtn.addEventListener("click", async () => {
+				this.plugin.settings.excludedPaths.splice(index, 1);
+				await this.plugin.saveSettings();
+				row.remove();
+				// Re-index remaining rows by re-rendering (list is typically short)
+				listEl.empty();
+				this.plugin.settings.excludedPaths.forEach((r, i) => renderRow(r, i));
+				listEl.appendChild(addRow);
+			});
+		};
+
+		this.plugin.settings.excludedPaths.forEach((rule, i) => renderRow(rule, i));
+
+		const addRow = listEl.createEl("div", {
+			attr: { style: "display:flex;align-items:center;gap:8px;margin-top:8px;" },
+		});
+		const input = addRow.createEl("input", {
+			attr: {
+				type: "text",
+				placeholder: "e.g. Folder/ or **/__pycache__",
+				style: "flex:1;",
+			},
+		}) as HTMLInputElement;
+		const addBtn = addRow.createEl("button", { text: "Add" });
+
+		const addRule = async (): Promise<void> => {
+			const value = input.value.trim();
+			if (!value || this.plugin.settings.excludedPaths.includes(value)) {
+				input.value = "";
+				return;
+			}
+			this.plugin.settings.excludedPaths.push(value);
+			await this.plugin.saveSettings();
+			listEl.empty();
+			this.plugin.settings.excludedPaths.forEach((r, i) => renderRow(r, i));
+			listEl.appendChild(addRow);
+			input.value = "";
+		};
+
+		addBtn.addEventListener("click", addRule);
+		input.addEventListener("keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter") addRule();
+		});
 	}
 
 	private async refreshLog(): Promise<void> {
