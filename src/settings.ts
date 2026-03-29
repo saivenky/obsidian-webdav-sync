@@ -86,7 +86,7 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Excluded paths")
-			.setDesc("One prefix per line. E.g. '_Attachments/' excludes that top-level folder.")
+			.setDesc("One rule per line. 'Folder/' excludes a top-level folder. '**/__pycache__' excludes any dir with that name anywhere in the tree.")
 			.addTextArea(text =>
 				text
 					.setValue(this.plugin.settings.excludedPaths.join("\n"))
