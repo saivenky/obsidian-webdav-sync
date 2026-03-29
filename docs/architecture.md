@@ -95,6 +95,17 @@ both changed since last sync                  →  CONFLICT          →  merge
 
 ---
 
+## Exclusion Patterns
+
+Before any per-file decision is made, the plugin checks each path against the configured exclusion list. Two pattern types are supported:
+
+- **Prefix** (`Folder/`) — matches any path that starts with that string. Applies only at the top level.
+- **Glob** (`**/name`) — matches any path component named `name` at any depth.
+
+Hidden directories (any path segment starting with `.`) are always excluded regardless of the configured list. The plugin also unconditionally excludes its own data directory (`.obsidian/plugins/obsidian-webdav-sync/`).
+
+---
+
 ## Conflict Resolution: Fuzzy Section Merge
 
 When both the local and remote versions of a file have changed since the last synced mtime, the plugin merges them automatically without user intervention.

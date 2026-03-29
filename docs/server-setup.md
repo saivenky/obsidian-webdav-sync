@@ -127,7 +127,7 @@ If directory mtime does **not** update after a child write, the hierarchical PRO
 
 ## Step 4 — Install as a launchd daemon
 
-Create `~/Library/LaunchAgents/com.yourname.caddy-webdav.plist`:
+Create `~/Library/LaunchAgents/com.yourname.caddy-webdav.plist` (replace `yourname` with any identifier you choose — it just needs to be unique on your machine):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>

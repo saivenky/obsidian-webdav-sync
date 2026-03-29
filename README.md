@@ -24,6 +24,8 @@ See [docs/server-setup.md](docs/server-setup.md) for Caddy setup.
 - Tailscale on every device (Mac, iPhone/iPad, Android)
 - BRAT plugin on mobile devices for installation
 
+**Alpha quality** — tested on Mac, iPad, Android. Back up your vault before relying on this. In exchange for no subscription fee, you maintain your own server and accept that conflict resolution is automatic but imperfect.
+
 ---
 
 ## Part 1 — Disable Obsidian Sync
@@ -51,8 +53,6 @@ On **Mac** (primary vault device):
 2. Settings → **About** → scroll to **Commercial license** or **Sync subscription**.
 3. Click **Manage subscription** (opens obsidian.md in your browser).
 4. Log in, go to **Account → Subscriptions**, and cancel the Sync plan.
-
-
 
 ### Step 1c — Verify Sync is fully off
 
@@ -124,16 +124,42 @@ Same as iPad — install BRAT, add this repo, enable the plugin.
 
 ## Part 4 — Configure the plugin
 
-On **each device** separately:
+On **each device** separately, open Settings → **WebDAV Sync**.
 
-1. Settings → **WebDAV Sync**.
-2. **Server URL**: `http://<tailscale-ip>:8080` (get your Mac's Tailscale IP with `tailscale ip -4`).
-3. **Username** and **Password**: same credentials you set in the Caddyfile.
-4. **Excluded paths**: defaults are `.git/`, `_Attachments/`, `.obsidian/`. Add any other prefixes you don't want synced (e.g. `_Archive/`).
-5. **Poll interval**: 10 seconds is the default. Increase it to reduce battery use on mobile (e.g. 30).
-6. Click the **refresh icon** in the ribbon or wait for the first poll.
+The settings panel is divided into sections:
 
-The status bar will show `WebDAV: Synced HH:MM:SS` when the first sync completes.
+### Connection
+
+- **Server URL**: `http://<tailscale-ip>:8080` (get your Mac's Tailscale IP with `tailscale ip -4`).
+- **Username** and **Password**: same credentials you set in the Caddyfile.
+
+### Sync
+
+- **Poll interval (seconds)**: how often to check for remote changes while the app is visible. Default is 10. Increase to 30 on mobile to reduce battery use.
+- **Request timeout (ms)**: time before a WebDAV request is abandoned. Default 8000.
+- Use the **Pause / Resume** button at the top of the settings page to suspend all sync activity.
+
+### Excluded paths
+
+A list of path patterns to skip during sync. Defaults are `.git/`, `_Attachments/`, `.obsidian/`. Hidden directories (dot-prefixed) are always excluded automatically.
+
+- To add a rule: type in the text field and click **Add** (or press Enter).
+- To remove a rule: click **×** next to it.
+
+See [Excluding paths](#excluding-paths) below for pattern syntax.
+
+### Danger zone
+
+- **Reset sync state**: wipes the local sync baseline. The next sync will re-bootstrap all files from scratch with no conflict merges.
+- **Clean up encoding artifacts**: deletes local files whose path contains `%` (URL-encoded duplicates from an old sync bug) and removes them from the remote too.
+
+### Sync log
+
+Collapsible section at the bottom of the settings page. Shows the last 50 log entries with **Sync now**, **Refresh**, and **Clear** buttons.
+
+---
+
+After configuring, sync starts automatically. The status bar shows `WebDAV: Synced HH:MM:SS` when the first cycle completes and `WebDAV: ↕ filename.md` while a file is transferring.
 
 ---
 
@@ -191,14 +217,17 @@ Stored at `.obsidian/plugins/obsidian-webdav-sync/sync-log.txt` (not in the vaul
 
 ## Excluding paths
 
-In **Settings → WebDAV Sync → Excluded paths**, one prefix per line. The match is a simple string prefix against the vault-relative path:
+In **Settings → WebDAV Sync → Excluded paths**, add one rule per entry. Two pattern syntaxes are supported:
 
-- `_Attachments/` matches `_Attachments/image.png` but not `Projects/_Attachments/image.png`.
-- To exclude a folder everywhere, add it with the subfolder path explicitly.
+- `Folder/` — prefix match against the vault-relative path. Matches only that top-level folder.
+  - `_Attachments/` matches `_Attachments/image.png` but **not** `Projects/_Attachments/image.png`.
+- `**/name` — matches any folder named `name` anywhere in the tree.
+  - `**/_Attachments` matches `_Attachments/`, `Projects/_Attachments/`, `Daily/2026/_Attachments/`, etc.
 
-The plugin also always excludes:
-- `.sync-state.json`
-- `.obsidian/plugins/obsidian-webdav-sync/` (its own data files)
+Hidden directories (any folder whose name starts with `.`) are always excluded automatically, regardless of what's in the list.
+
+The plugin also always excludes its own data files:
+- `.obsidian/plugins/obsidian-webdav-sync/` (settings, sync state, log)
 
 ---
 
