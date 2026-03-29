@@ -403,20 +403,33 @@ export class SyncEngine {
 	private isDirExcluded(dirPath: string): boolean {
 		// Skip hidden directories (any component starting with "."), matching Obsidian's
 		// own behavior of ignoring hidden folders. Covers .git, .obsidian, .pipx, .venv, etc.
-		if (dirPath.split("/").some(part => part.startsWith("."))) return true;
-		// Skip directories matched by an excluded prefix
-		return this.settings.excludedPaths.some(p => dirPath.startsWith(p) || (p.endsWith("/") && dirPath + "/" === p));
+		const parts = dirPath.split("/");
+		if (parts.some(part => part.startsWith("."))) return true;
+		// Skip directories matched by an excluded prefix or **/name pattern
+		return this.settings.excludedPaths.some(p => {
+			if (p.startsWith("**/")) {
+				const name = p.slice(3);
+				return parts.some(part => part === name);
+			}
+			return dirPath.startsWith(p) || (p.endsWith("/") && dirPath + "/" === p);
+		});
 	}
 
 	private isExcluded(path: string): boolean {
 		if (path === ".sync-state.json") return true;
 
-		// Skip files inside hidden directories (any directory component starting with ".")
 		const parts = path.split("/");
+		// Skip files inside hidden directories (any directory component starting with ".")
 		if (parts.slice(0, -1).some(part => part.startsWith("."))) return true;
 
-		// Exclude by configured prefix rules
-		if (this.settings.excludedPaths.some(p => path.startsWith(p))) return true;
+		// Exclude by configured prefix or **/name pattern
+		if (this.settings.excludedPaths.some(p => {
+			if (p.startsWith("**/")) {
+				const name = p.slice(3);
+				return parts.slice(0, -1).some(part => part === name);
+			}
+			return path.startsWith(p);
+		})) return true;
 
 		// Only sync known text-safe file types
 		const dot = path.lastIndexOf(".");
