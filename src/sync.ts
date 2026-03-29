@@ -48,6 +48,24 @@ export class SyncEngine {
 		this.client = this.buildClient();
 	}
 
+	async deleteEncodingArtifacts(): Promise<number> {
+		const files = this.plugin.app.vault.getFiles().filter(f => f.path.includes("%"));
+		let count = 0;
+		for (const file of files) {
+			try {
+				await this.client.delete(file.path);
+			} catch {
+				// not on remote — fine
+			}
+			this.stateManager.setTombstone(file.path);
+			await this.plugin.app.vault.trash(file, true);
+			this.log(`CLEANUP-ARTIFACT ${file.path}`);
+			count++;
+		}
+		if (count > 0) await this.stateManager.save();
+		return count;
+	}
+
 	async resetState(): Promise<void> {
 		// Cancel any queued sync and wait for a running sync to finish before
 		// resetting. Without this, runSync()'s final stateManager.save() (line ~119)

@@ -144,6 +144,20 @@ export class WebDAVSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		new Setting(containerEl)
+			.setName("Clean up encoding artifacts")
+			.setDesc("Deletes all local files whose path contains '%' (URL-encoded duplicates from a sync bug). Removes from remote too if present.")
+			.addButton(btn =>
+				btn
+					.setButtonText("Clean up")
+					.setWarning()
+					.onClick(async () => {
+						const count = await this.plugin.syncEngine.deleteEncodingArtifacts();
+						new Notice(`Deleted ${count} encoding artifact${count === 1 ? "" : "s"}.`);
+						await this.refreshLog();
+					})
+			);
+
 		// ── Sync log ──────────────────────────────────────────────────────────
 
 		new Setting(containerEl)
