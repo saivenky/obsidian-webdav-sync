@@ -173,7 +173,11 @@ export class SyncEngine {
 
 		for (const path of allPaths) {
 			if (this.isExcluded(path)) continue;
-			await this.decideFile(path);
+			try {
+				await this.decideFile(path);
+			} catch (e) {
+				this.log(`ERROR ${path} — ${(e as Error).message ?? String(e)}`);
+			}
 		}
 
 		await this.stateManager.save();
