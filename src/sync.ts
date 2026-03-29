@@ -401,22 +401,19 @@ export class SyncEngine {
 	}
 
 	private isDirExcluded(dirPath: string): boolean {
-		// Skip directories that are .git components
-		if (dirPath.split("/").some(part => part === ".git")) return true;
+		// Skip hidden directories (any component starting with "."), matching Obsidian's
+		// own behavior of ignoring hidden folders. Covers .git, .obsidian, .pipx, .venv, etc.
+		if (dirPath.split("/").some(part => part.startsWith("."))) return true;
 		// Skip directories matched by an excluded prefix
 		return this.settings.excludedPaths.some(p => dirPath.startsWith(p) || (p.endsWith("/") && dirPath + "/" === p));
 	}
 
 	private isExcluded(path: string): boolean {
-		if (
-			path === ".sync-state.json" ||
-			path.startsWith(".obsidian/plugins/obsidian-webdav-sync/")
-		) {
-			return true;
-		}
+		if (path === ".sync-state.json") return true;
 
-		// Exclude any path containing a .git directory component
-		if (path.split("/").some(part => part === ".git")) return true;
+		// Skip files inside hidden directories (any directory component starting with ".")
+		const parts = path.split("/");
+		if (parts.slice(0, -1).some(part => part.startsWith("."))) return true;
 
 		// Exclude by configured prefix rules
 		if (this.settings.excludedPaths.some(p => path.startsWith(p))) return true;
