@@ -4,7 +4,6 @@
 
 ```bash
 npm version 0.X.Y -m "fix(0.X.Y): description"
-git push --follow-tags && gh release create 0.X.Y main.js manifest.json --title "0.X.Y" --notes "..."
 ```
 
-`npm version` runs tests, builds, and bumps all version files automatically.
+Runs tests, builds, bumps all version files, commits, pushes, and publishes the GitHub release. Release notes are taken from the commit message.
