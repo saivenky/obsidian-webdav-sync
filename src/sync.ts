@@ -162,10 +162,13 @@ export class SyncEngine {
 			await this.scanDir(dir.path);
 		}
 
-		// Union of all paths to consider
+		// Union of all paths to consider: remote files, state entries, and local vault
+		// files. Local files must be included so that new files (no state, not yet on
+		// remote) reach decideFile() and trigger Case 5 (PUSH-NEW).
 		const allPaths = new Set<string>([
 			...this.currentRemoteFiles.keys(),
 			...this.stateManager.entries().map(([p]) => p),
+			...this.plugin.app.vault.getFiles().map(f => f.path),
 		]);
 
 		for (const path of allPaths) {

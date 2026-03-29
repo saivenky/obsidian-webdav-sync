@@ -1,10 +1,10 @@
 {
-  "id": "obsidian-webdav-sync",
-  "name": "WebDAV Sync",
-  "version": "0.2.0",
-  "minAppVersion": "1.5.0",
-  "description": "Sync your vault with a self-hosted WebDAV server over Tailscale.",
-  "author": "saivenky",
-  "authorUrl": "https://github.com/saivenky",
-  "isDesktopOnly": false
+	"id": "obsidian-webdav-sync",
+	"name": "WebDAV Sync",
+	"version": "0.2.1",
+	"minAppVersion": "1.5.0",
+	"description": "Sync your vault with a self-hosted WebDAV server over Tailscale.",
+	"author": "saivenky",
+	"authorUrl": "https://github.com/saivenky",
+	"isDesktopOnly": false
 }
