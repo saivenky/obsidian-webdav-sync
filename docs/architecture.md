@@ -30,8 +30,8 @@ Sync runs are queued (never dropped, never concurrent):
 | Trigger | When | What it scans |
 |---|---|---|
 | App open | `onLayoutReady` | Full PROPFIND |
-| File save | `vault.on("modify")`, debounced 5s | Full PROPFIND |
-| Foreground poll | Every N seconds while `document.visibilityState === "visible"` | Hierarchical PROPFIND |
+| File change | `vault.on("modify" \| "create" \| "delete")`, debounced 5s | Full PROPFIND |
+| Foreground poll | Every N seconds (configurable) while `document.visibilityState === "visible"` | Hierarchical PROPFIND |
 | Manual | Ribbon icon or status bar click | Full PROPFIND |
 
 Concurrency: a `syncing` boolean prevents overlapping runs. If a trigger fires while a sync is in progress, `pendingSync` is set to `true`; the engine runs one more cycle immediately after the current one completes.
@@ -100,7 +100,7 @@ both changed since last sync                  →  CONFLICT          →  merge
 Before any per-file decision is made, the plugin checks each path against the configured exclusion list. Two pattern types are supported:
 
 - **Prefix** (`Folder/`) — matches any path that starts with that string. Applies only at the top level.
-- **Glob** (`**/name`) — matches any path component named `name` at any depth.
+- **Glob** (`**/name`) — matches any directory named `name` at any depth in the tree.
 
 Hidden directories (any path segment starting with `.`) are always excluded regardless of the configured list. The plugin also unconditionally excludes its own data directory (`.obsidian/plugins/obsidian-webdav-sync/`).
 
@@ -158,4 +158,4 @@ Written to `.obsidian/plugins/obsidian-webdav-sync/sync-log.txt`. Not in the vau
 2026-03-27T22:16:01.000Z ERROR Request timed out: /Daily/2026-03-27.md
 ```
 
-Entry types: `PULL`, `PUSH`, `LOCAL-DELETE`, `REMOTE-DELETE`, `CONFLICT`, `ERROR`.
+Entry types: `PULL`, `PULL-NEW`, `PUSH`, `PUSH-NEW`, `LOCAL-DELETE`, `REMOTE-DELETE`, `CONFLICT`, `CLEANUP-ARTIFACT`, `ERROR`.

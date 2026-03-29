@@ -128,6 +128,8 @@ On **each device** separately, open Settings → **WebDAV Sync**.
 
 The settings panel is divided into sections:
 
+Use the **Pause / Resume** button at the top of the page to suspend all sync activity.
+
 ### Connection
 
 - **Server URL**: `http://<tailscale-ip>:8080` (get your Mac's Tailscale IP with `tailscale ip -4`).
@@ -137,7 +139,6 @@ The settings panel is divided into sections:
 
 - **Poll interval (seconds)**: how often to check for remote changes while the app is visible. Default is 10. Increase to 30 on mobile to reduce battery use.
 - **Request timeout (ms)**: time before a WebDAV request is abandoned. Default 8000.
-- Use the **Pause / Resume** button at the top of the settings page to suspend all sync activity.
 
 ### Excluded paths
 
