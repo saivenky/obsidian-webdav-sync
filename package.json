@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-webdav-sync",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"description": "Sync your Obsidian vault with a self-hosted WebDAV server over Tailscale.",
 	"main": "main.js",
 	"type": "module",
