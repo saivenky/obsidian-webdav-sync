@@ -230,6 +230,12 @@ Hidden directories (any folder whose name starts with `.`) are always excluded a
 The plugin also always excludes its own data files:
 - `.obsidian/plugins/obsidian-webdav-sync/` (settings, sync state, log)
 
+**File type filter:** only files with the following extensions are synced — all others are silently skipped:
+
+`.md` `.canvas` `.css` `.js` `.json` `.txt` `.yaml` `.yml`
+
+Images, PDFs, Excalidraw files, and other binary or non-text formats are not synced. Use `_Attachments/` (or `**/Attachments`) in the excluded paths list to avoid the plugin attempting to stat those folders.
+
 ---
 
 ## License

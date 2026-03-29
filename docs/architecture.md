@@ -104,6 +104,8 @@ Before any per-file decision is made, the plugin checks each path against the co
 
 Hidden directories (any path segment starting with `.`) are always excluded regardless of the configured list. The plugin also unconditionally excludes its own data directory (`.obsidian/plugins/obsidian-webdav-sync/`).
 
+Files are additionally filtered by extension. Only `.md`, `.canvas`, `.css`, `.js`, `.json`, `.txt`, `.yaml`, and `.yml` files are synced; all other extensions are silently skipped.
+
 ---
 
 ## Conflict Resolution: Fuzzy Section Merge
