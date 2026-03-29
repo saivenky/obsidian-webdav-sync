@@ -35,6 +35,8 @@ function makeMocks(opts: {
 	/** mtime returned after client.put() — simulates same-filesystem WebDAV updating the inode */
 	localMtimeAfter: number;
 	initialState?: Record<string, { mtime: number }>;
+	/** Paths returned by vault.getFiles(). Default []: existing tests assume no local-only files. */
+	localFiles?: string[];
 }) {
 	let putCallCount = 0;
 
@@ -57,8 +59,7 @@ function makeMocks(opts: {
 		create: async (_path: string, _content: string) => {},
 		modify: async (_file: unknown, _content: string) => {},
 		trash: async (_file: unknown, _system: boolean) => {},
-		// Default: no local-only files. Tests that exercise PUSH-NEW must use inline mocks.
-		getFiles: () => [] as { path: string }[],
+		getFiles: () => (opts.localFiles ?? []).map(p => ({ path: p })),
 	};
 
 	const pluginData: Record<string, unknown> = opts.initialState
@@ -90,10 +91,10 @@ function makeMocks(opts: {
 function makeEngine(
 	plugin: ReturnType<typeof makeMocks>["plugin"],
 	remoteEntries: PropfindEntry[],
-	onPut?: () => void
+	onPut?: (path: string) => void
 ) {
 	const client = {
-		put: async (_path: string, _content: string) => { onPut?.(); },
+		put: async (path: string, _content: string) => { onPut?.(path); },
 		get: async (_path: string): Promise<string> => "remote content",
 		delete: async (_path: string) => {},
 		propfind: async (path: string, _depth: string): Promise<PropfindEntry[]> => {
@@ -169,50 +170,34 @@ console.log("\nCase 4 / Case 5: PULL-NEW and PUSH-NEW");
 
 await test("PULL-NEW: new remote file is created locally", async () => {
 	// File exists on remote (mtime=5000), no state, no local file.
-	// Expected: vault.create called, state entry recorded with mtime >= 5000.
+	// adapter.stat() returns null (no local files), so Case 4 fires.
+	// When afterStat is null, mtime4 = remoteMtime = 5000, satisfying the assertion.
 	let createdPath: string | undefined;
 	let createdContent: string | undefined;
 
-	// localFiles tracks what vault.create() has written so that adapter.stat()
-	// returns null before creation (triggering Case 4) and a real stat after.
-	// mtime=5000 matches remoteMtime so Math.max(afterStat, remote) = 5000.
-	const localFiles = new Set<string>();
 	const adapter = {
-		stat: async (path: string) => {
-			if (localFiles.has(path)) {
-				return { type: "file" as const, ctime: 0, mtime: 5000, size: 0 };
-			}
-			return null;
-		},
+		stat: async (_path: string) => null,
 		read: async (_path: string) => "",
 		write: async (_path: string, _content: string) => {},
 		exists: async (_path: string) => false,
 		mkdir: async (_path: string) => {},
 	};
-
 	const vault = {
 		adapter,
 		getAbstractFileByPath: (_path: string) => null,
-		create: async (path: string, content: string) => {
-			createdPath = path;
-			createdContent = content;
-			localFiles.add(path);
-		},
+		create: async (path: string, content: string) => { createdPath = path; createdContent = content; },
 		modify: async (_file: unknown, _content: string) => {},
 		trash: async (_file: unknown, _system: boolean) => {},
 		getFiles: () => [] as { path: string }[],
 	};
-
 	const pluginData: Record<string, unknown> = {};
 	const plugin = {
 		app: { vault },
 		settings: { serverUrl: "http://localhost:1234", username: "", password: "", requestTimeoutMs: 5000, excludedPaths: [] as string[] },
-		paused: false,
-		pluginData,
+		paused: false, pluginData,
 		saveData: async (data: Record<string, unknown>) => { Object.assign(pluginData, data); },
 		statusBarItem: { setText: (_: string) => {} },
 	};
-
 	const client = {
 		put: async (_path: string, _content: string) => {},
 		get: async (_path: string): Promise<string> => "remote content",
@@ -222,7 +207,6 @@ await test("PULL-NEW: new remote file is created locally", async () => {
 			return [];
 		},
 	};
-
 	const engine = new SyncEngine(plugin as unknown as ConstructorParameters<typeof SyncEngine>[0], client as unknown as ConstructorParameters<typeof SyncEngine>[1]);
 	await engine.init();
 	await engine.requestSync();
@@ -237,53 +221,13 @@ await test("PULL-NEW: new remote file is created locally", async () => {
 await test("PUSH-NEW: new local file is pushed to remote", async () => {
 	// File exists locally (mtime=1000), no state, nothing on remote.
 	// Expected: client.put called, state entry recorded.
-	// BUG: allPaths is built from remote + state only — local-only files are never
-	// added to allPaths, so decideFile() is never called for them and Case 5 never fires.
 	let putPath: string | undefined;
-
-	const adapter = {
-		stat: async (path: string) => {
-			if (path === "new-local.md") {
-				return { type: "file" as const, ctime: 0, mtime: 1000, size: 0 };
-			}
-			return null;
-		},
-		read: async (_path: string) => "local content",
-		write: async (_path: string, _content: string) => {},
-		exists: async (_path: string) => false,
-		mkdir: async (_path: string) => {},
-	};
-
-	const vault = {
-		adapter,
-		getAbstractFileByPath: (_path: string) => null,
-		create: async (_path: string, _content: string) => {},
-		modify: async (_file: unknown, _content: string) => {},
-		trash: async (_file: unknown, _system: boolean) => {},
-		getFiles: () => [{ path: "new-local.md" }] as { path: string }[],
-	};
-
-	const pluginData: Record<string, unknown> = {};
-	const plugin = {
-		app: { vault },
-		settings: { serverUrl: "http://localhost:1234", username: "", password: "", requestTimeoutMs: 5000, excludedPaths: [] as string[] },
-		paused: false,
-		pluginData,
-		saveData: async (data: Record<string, unknown>) => { Object.assign(pluginData, data); },
-		statusBarItem: { setText: (_: string) => {} },
-	};
-
-	const client = {
-		put: async (path: string, _content: string) => { putPath = path; },
-		get: async (_path: string): Promise<string> => "",
-		delete: async (_path: string) => {},
-		propfind: async (path: string, _depth: string): Promise<PropfindEntry[]> => {
-			if (path === "/" || path === "") return []; // nothing on remote
-			return [];
-		},
-	};
-
-	const engine = new SyncEngine(plugin as unknown as ConstructorParameters<typeof SyncEngine>[0], client as unknown as ConstructorParameters<typeof SyncEngine>[1]);
+	const { plugin, incrementPut } = makeMocks({
+		localMtimeBefore: 1000,
+		localMtimeAfter: 1000,
+		localFiles: ["new-local.md"],
+	});
+	const engine = makeEngine(plugin, [], (path) => { putPath = path; incrementPut(); });
 	await engine.init();
 	await engine.requestSync();
 
