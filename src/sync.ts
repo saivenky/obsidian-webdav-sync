@@ -171,12 +171,18 @@ export class SyncEngine {
 			...this.plugin.app.vault.getFiles().map(f => f.path),
 		]);
 
-		for (const path of allPaths) {
-			if (this.isExcluded(path)) continue;
+		const syncPaths = [...allPaths].filter(p => !this.isExcluded(p));
+		const total = syncPaths.length;
+		let done = 0;
+		for (const path of syncPaths) {
 			try {
 				await this.decideFile(path);
 			} catch (e) {
 				this.log(`ERROR ${path} — ${(e as Error).message ?? String(e)}`);
+			}
+			done++;
+			if (done % 25 === 0 || done === total) {
+				this.setStatus(`Syncing… ${done} / ${total}`);
 			}
 		}
 
