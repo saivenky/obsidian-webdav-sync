@@ -20,3 +20,9 @@ data.json
 
 # macOS
 .DS_Store
+
+# sync log (runtime artifact)
+sync-log.txt
+
+# lockfile
+package-lock.json

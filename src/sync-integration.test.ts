@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { SyncEngine } from "./sync.js";
+import { WebDAVError } from "./webdav.js";
 import type { PropfindEntry } from "./webdav.js";
 
 let passed = 0;
@@ -235,6 +236,73 @@ await test("PUSH-NEW: new local file is pushed to remote", async () => {
 	const state = engine.stateManager.getFile("new-local.md");
 	assert.ok(state, "state entry must be recorded after PUSH-NEW");
 	assert.ok(state!.mtime >= 1000, `state mtime (${state?.mtime}) must be >= localMtime (1000)`);
+});
+
+// ─── requestSyncFile: error handling ─────────────────────────────────────────
+
+console.log("\nrequestSyncFile: network error vs 404 handling");
+
+function makeRequestSyncFileSetup(propfindError: Error) {
+	const pluginData: Record<string, unknown> = {
+		syncState: { version: 1, files: { "Daily/2026-03-31.md": { mtime: 5000 } }, dirs: {} },
+	};
+	const adapter = {
+		stat: async (_path: string) => ({ type: "file" as const, ctime: 0, mtime: 5000, size: 0 }),
+		read: async (_path: string) => "local content",
+		write: async (_path: string, _content: string) => {},
+		exists: async (_path: string) => false,
+		mkdir: async (_path: string) => {},
+	};
+	const vault = {
+		adapter,
+		getAbstractFileByPath: (_path: string) => null,
+		create: async (_path: string, _content: string) => {},
+		modify: async (_file: unknown, _content: string) => {},
+		trash: async (_file: unknown, _system: boolean) => {},
+		getFiles: () => [] as { path: string }[],
+	};
+	const plugin = {
+		app: { vault },
+		settings: { serverUrl: "http://localhost:1234", username: "", password: "", requestTimeoutMs: 5000, excludedPaths: [] as string[] },
+		paused: false, pluginData,
+		saveData: async (data: Record<string, unknown>) => { Object.assign(pluginData, data); },
+		statusBarItem: { setText: (_: string) => {} },
+	};
+	const client = {
+		put: async (_path: string, _content: string) => {},
+		get: async (_path: string): Promise<string> => "remote content",
+		delete: async (_path: string) => {},
+		propfind: async (_path: string, _depth: string): Promise<PropfindEntry[]> => {
+			throw propfindError;
+		},
+	};
+	const engine = new SyncEngine(
+		plugin as unknown as ConstructorParameters<typeof SyncEngine>[0],
+		client as unknown as ConstructorParameters<typeof SyncEngine>[1],
+	);
+	return engine;
+}
+
+await test("requestSyncFile: network error (no statusCode) does NOT REMOTE-DELETE", async () => {
+	const engine = makeRequestSyncFileSetup(new WebDAVError("Network error: connection refused"));
+	await engine.init();
+
+	await engine.requestSyncFile("Daily/2026-03-31.md");
+
+	// State entry must survive — server was unreachable, file was not deleted
+	const state = engine.stateManager.getFile("Daily/2026-03-31.md");
+	assert.ok(state, "state entry must still exist after a network error (server was unreachable, not file-absent)");
+});
+
+await test("requestSyncFile: 404 DOES REMOTE-DELETE (file genuinely gone from server)", async () => {
+	const engine = makeRequestSyncFileSetup(new WebDAVError("PROPFIND failed: Daily/2026-03-31.md", 404));
+	await engine.init();
+
+	await engine.requestSyncFile("Daily/2026-03-31.md");
+
+	// State entry must be deleted — server confirmed file is gone
+	const state = engine.stateManager.getFile("Daily/2026-03-31.md");
+	assert.equal(state, undefined, "state entry must be removed after a confirmed 404 (file deleted on server)");
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

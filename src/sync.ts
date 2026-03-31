@@ -1,6 +1,6 @@
 import { TFile, normalizePath, FileSystemAdapter } from "obsidian";
 import type WebDAVSyncPlugin from "main";
-import { WebDAVClient, PropfindEntry } from "webdav";
+import { WebDAVClient, WebDAVError, PropfindEntry } from "webdav";
 import { SyncStateManager } from "sync-state";
 import { mergeConflict } from "conflict";
 import type { WebDAVSyncSettings } from "settings";
@@ -102,8 +102,11 @@ export class SyncEngine {
 				for (const entry of entries) {
 					if (!entry.isDir) this.currentRemoteFiles.set(entry.path, entry);
 				}
-			} catch {
-				// file absent on server — currentRemoteFiles stays empty for this path
+			} catch (e) {
+				// Only treat 404 (file genuinely absent) as "not on server".
+				// Re-throw network errors and other failures so the sync aborts
+				// instead of treating an unreachable server as a remote deletion.
+				if (!(e instanceof WebDAVError && e.statusCode === 404)) throw e;
 			}
 			await this.decideFile(path);
 			await this.stateManager.save();
