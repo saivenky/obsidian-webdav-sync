@@ -374,6 +374,57 @@ test("merge(A, B) applied again with B is stable", () => {
 	);
 });
 
+// ─── preferNonEmpty (Bootstrap merge) ────────────────────────────────────────
+
+console.log("\npreferNonEmpty=true: empty section defers to non-empty side");
+
+test("local empty section, remote has content → remote content wins, single header", () => {
+	const local = "## Schedule\n\n## Notes\n\n";
+	const remote = "## Schedule\n- 09:00 Meeting\n- 14:00 Standup\n\n## Notes\n- Called mom\n";
+	const result = mergeConflict(local, remote, 2000, 1000, true);
+	assert.ok(result.includes("09:00 Meeting"), "remote schedule content should appear");
+	assert.ok(result.includes("Called mom"), "remote notes content should appear");
+	// No duplicate section headers
+	const scheduleCount = (result.match(/## Schedule/g) ?? []).length;
+	const notesCount = (result.match(/## Notes/g) ?? []).length;
+	assert.equal(scheduleCount, 1, "## Schedule should appear exactly once");
+	assert.equal(notesCount, 1, "## Notes should appear exactly once");
+});
+
+test("local has content, remote empty section → local content wins", () => {
+	const local = "## Ideas\nNew startup concept that could change the world\n";
+	const remote = "## Ideas\n\n";
+	const result = mergeConflict(local, remote, 2000, 1000, true);
+	assert.ok(result.includes("startup concept"), "local content should appear");
+	const ideasCount = (result.match(/## Ideas/g) ?? []).length;
+	assert.equal(ideasCount, 1, "## Ideas should appear exactly once");
+});
+
+test("both sections non-empty and diverged → both emitted (same as preferNonEmpty=false)", () => {
+	const local = "## Notes\nWent to gym did heavy squats deadlifts and bench press for strength training today\n";
+	const remote = "## Notes\nRead philosophy books wrote journal entries about stoicism daily reflection practice\n";
+	const resultDefault = mergeConflict(local, remote, 2000, 1000, false);
+	const resultPrefer = mergeConflict(local, remote, 2000, 1000, true);
+	assert.equal(resultPrefer, resultDefault, "both non-empty diverged: preferNonEmpty should have no effect");
+});
+
+test("both sections empty → jaccard=1.0 → similar, spine wins (same as preferNonEmpty=false)", () => {
+	const local = "## Schedule\n\n";
+	const remote = "## Schedule\n\n";
+	const result = mergeConflict(local, remote, 2000, 1000, true);
+	const scheduleCount = (result.match(/## Schedule/g) ?? []).length;
+	assert.equal(scheduleCount, 1, "both empty: single section header, no duplication");
+});
+
+test("preferNonEmpty=false (default): empty vs content still emits both", () => {
+	const local = "## Schedule\n\n";
+	const remote = "## Schedule\n- 09:00 Meeting\n";
+	const result = mergeConflict(local, remote, 2000, 1000, false);
+	// With default behavior, diverged → emit both → two ## Schedule headers
+	const scheduleCount = (result.match(/## Schedule/g) ?? []).length;
+	assert.equal(scheduleCount, 2, "default behavior: empty vs non-empty diverged → both emitted");
+});
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(50)}`);

@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { SyncEngine } from "./sync.js";
 import { WebDAVError } from "./webdav.js";
 import type { PropfindEntry } from "./webdav.js";
+import { TFile } from "obsidian";
 
 let passed = 0;
 let failed = 0;
@@ -303,6 +304,131 @@ await test("requestSyncFile: 404 DOES REMOTE-DELETE (file genuinely gone from se
 	// State entry must be deleted — server confirmed file is gone
 	const state = engine.stateManager.getFile("Daily/2026-03-31.md");
 	assert.equal(state, undefined, "state entry must be removed after a confirmed 404 (file deleted on server)");
+});
+
+// ─── Case 5.5 MERGE-BOOT ─────────────────────────────────────────────────────
+
+console.log("\nCase 5.5 MERGE-BOOT: Bootstrap with local newer");
+
+function makeMergeBootMocks(opts: {
+	localContent: string;
+	remoteContent: string;
+	localMtimeBefore: number;
+	localMtimeAfter: number;
+	remoteMtime: number;
+}) {
+	let modifiedContent: string | undefined;
+	let putContent: string | undefined;
+
+	const adapter = {
+		stat: async (_path: string) => ({
+			type: "file" as const,
+			ctime: 0,
+			mtime: modifiedContent !== undefined ? opts.localMtimeAfter : opts.localMtimeBefore,
+			size: 0,
+		}),
+		read: async (_path: string) => opts.localContent,
+		write: async (_path: string, _content: string) => {},
+		exists: async (_path: string) => true,
+		mkdir: async (_path: string) => {},
+	};
+
+	const vault = {
+		adapter,
+		getAbstractFileByPath: (_path: string) => Object.assign(new TFile(), { path: _path }),
+		create: async (_path: string, _content: string) => {},
+		modify: async (_file: unknown, content: string) => { modifiedContent = content; },
+		trash: async (_file: unknown, _system: boolean) => {},
+		getFiles: () => [{ path: "test.md" }] as { path: string }[],
+	};
+
+	const pluginData: Record<string, unknown> = {};
+	const plugin = {
+		app: { vault },
+		settings: { serverUrl: "http://localhost:1234", username: "", password: "", requestTimeoutMs: 5000, excludedPaths: [] as string[] },
+		paused: false, pluginData,
+		saveData: async (data: Record<string, unknown>) => { Object.assign(pluginData, data); },
+		statusBarItem: { setText: (_: string) => {} },
+	};
+
+	const client = {
+		put: async (_path: string, content: string) => { putContent = content; },
+		get: async (_path: string): Promise<string> => opts.remoteContent,
+		delete: async (_path: string) => {},
+		propfind: async (path: string, _depth: string): Promise<PropfindEntry[]> => {
+			if (path === "/" || path === "") return [{ path: "test.md", mtime: opts.remoteMtime, isDir: false }];
+			return [];
+		},
+	};
+
+	const engine = new SyncEngine(
+		plugin as unknown as ConstructorParameters<typeof SyncEngine>[0],
+		client as unknown as ConstructorParameters<typeof SyncEngine>[1],
+	);
+
+	return { engine, getModified: () => modifiedContent, getPut: () => putContent };
+}
+
+await test("MERGE-BOOT primary bug: template (empty sections, newer) vs schedule (older) → schedule preserved, no duplicate headers", async () => {
+	const localTemplate = "## Schedule\n\n## Notes\n\n";
+	const remoteSchedule = "## Schedule\n- 09:00 Meeting\n- 14:00 Standup\n\n## Notes\n- Called mom\n";
+	const { engine, getModified, getPut } = makeMergeBootMocks({
+		localContent: localTemplate,
+		remoteContent: remoteSchedule,
+		localMtimeBefore: 2000,
+		localMtimeAfter: 3000,
+		remoteMtime: 1000,
+	});
+	await engine.init();
+	await engine.requestSync();
+
+	const modified = getModified();
+	const put = getPut();
+	assert.ok(modified !== undefined, "vault.modify must be called");
+	assert.ok(put !== undefined, "client.put must be called");
+	assert.ok(modified!.includes("09:00 Meeting"), "schedule content must be in merged output");
+	assert.ok(modified!.includes("Called mom"), "notes content must be in merged output");
+	const scheduleHeaders = (modified!.match(/## Schedule/g) ?? []).length;
+	assert.equal(scheduleHeaders, 1, "## Schedule must appear exactly once (no duplicate headers)");
+	assert.equal(modified, put, "local and remote must both receive the same merged content");
+
+	const state = engine.stateManager.getFile("test.md");
+	assert.ok(state, "state entry must be recorded after MERGE-BOOT");
+});
+
+await test("MERGE-BOOT tradeoff A (flat notes): both sides have content → concatenated, neither lost", async () => {
+	const localFlat = "Mobile note: picked up groceries and called dentist appointment.\n";
+	const remoteFlat = "Desktop note: reviewed quarterly report and sent follow-up emails.\n";
+	const { engine, getModified } = makeMergeBootMocks({
+		localContent: localFlat,
+		remoteContent: remoteFlat,
+		localMtimeBefore: 2000,
+		localMtimeAfter: 3000,
+		remoteMtime: 1000,
+	});
+	await engine.init();
+	await engine.requestSync();
+
+	const modified = getModified();
+	assert.ok(modified !== undefined, "vault.modify must be called");
+	assert.ok(modified!.includes("groceries"), "local content must appear in merged output");
+	assert.ok(modified!.includes("quarterly report"), "remote content must appear in merged output");
+});
+
+await test("MERGE-BOOT tradeoff B (empty local): empty local (newer) + filled remote (older) → remote content restored", async () => {
+	const { engine, getModified } = makeMergeBootMocks({
+		localContent: "",
+		remoteContent: "## Notes\n- Important server content\n",
+		localMtimeBefore: 2000,
+		localMtimeAfter: 3000,
+		remoteMtime: 1000,
+	});
+	await engine.init();
+	await engine.requestSync();
+
+	const modified = getModified();
+	assert.ok(modified !== undefined, "vault.modify must be called");
+	assert.ok(modified!.includes("Important server content"), "remote content must be restored when local is empty");
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

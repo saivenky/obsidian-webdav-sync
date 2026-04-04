@@ -317,12 +317,23 @@ export class SyncEngine {
 				this.stateManager.setFile(path, { mtime: mtime55 });
 				this.log(`PULL-BOOT ${path} local=${localMtime} remote=${remoteMtime} after=${afterStat55?.mtime} →state=${mtime55}`);
 			} else {
-				const content = await this.plugin.app.vault.adapter.read(normalizePath(path));
-				await this.client.put(path, content);
+				// MERGE-BOOT: local is newer but no baseline exists. Merge instead of
+				// blindly pushing, so that auto-created template files (e.g. daily note
+				// plugin) don't overwrite real server content. preferNonEmpty=true means
+				// empty section bodies defer to the non-empty side.
+				const localContent = await this.plugin.app.vault.adapter.read(normalizePath(path));
+				const remoteContent = await this.client.get(path);
+				const merged = mergeConflict(localContent, remoteContent, localMtime, remoteMtime, true);
+				const file55p = this.plugin.app.vault.getAbstractFileByPath(normalizePath(path));
+				if (file55p instanceof TFile) {
+					this.suppressNextModifyTrigger = true;
+					await this.plugin.app.vault.modify(file55p, merged);
+				}
+				await this.client.put(path, merged);
 				const afterStat55p = await this.plugin.app.vault.adapter.stat(normalizePath(path));
 				const mtime55p = afterStat55p ? afterStat55p.mtime : localMtime;
 				this.stateManager.setFile(path, { mtime: mtime55p });
-				this.log(`PUSH-BOOT ${path} local=${localMtime} remote=${remoteMtime} after=${afterStat55p?.mtime} →state=${mtime55p}`);
+				this.log(`MERGE-BOOT ${path} local=${localMtime} remote=${remoteMtime} after=${afterStat55p?.mtime} →state=${mtime55p}`);
 			}
 			return;
 		}

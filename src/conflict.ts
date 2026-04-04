@@ -136,7 +136,8 @@ export function mergeConflict(
 	local: string,
 	remote: string,
 	localMtime: number,
-	remoteMtime: number
+	remoteMtime: number,
+	preferNonEmpty = false,
 ): string {
 	const localSecs = parseFile(local);
 	const remoteSecs = parseFile(remote);
@@ -184,6 +185,14 @@ export function mergeConflict(
 			const score = jaccard(spineSection.content, other.content);
 			if (score >= 0.6) {
 				// Similar enough — keep newer
+				emitSection(spineSection, output, emitted);
+				emitted.add(other);
+			} else if (preferNonEmpty && !spineSection.content.trim()) {
+				// Diverged, spine is empty placeholder — use the non-empty side
+				emitSection(other, output, emitted);
+				emitted.add(spineSection);
+			} else if (preferNonEmpty && !other.content.trim()) {
+				// Diverged, other is empty placeholder — use the non-empty side
 				emitSection(spineSection, output, emitted);
 				emitted.add(other);
 			} else {
